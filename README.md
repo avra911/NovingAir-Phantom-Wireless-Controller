@@ -37,7 +37,7 @@ SENSOR_LOCAL_KEY=
 `PhantomRemote/.env` contains the address used by the app to reach the backend:
 
 ```dotenv
-EXPO_PUBLIC_API_URL=http://192.168.1.138:8000
+EXPO_PUBLIC_API_URL=http://YOUR_BACKEND_IP:8000
 ```
 
 Never commit either `.env` file. They are ignored by Git.
