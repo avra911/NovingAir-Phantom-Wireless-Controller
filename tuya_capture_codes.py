@@ -17,7 +17,7 @@ ir = IRRemoteControlDevice(
     control_type=1,
 )
 
-# Lista tuturor stărilor absolute pe care vrem să le captăm
+# List of all absolute states to capture
 TARGET_STATES = [
     "SPEED_1", "SPEED_2", "SPEED_3",
     "HUMIDITY_1", "HUMIDITY_2", "HUMIDITY_3",
@@ -39,54 +39,54 @@ print("Output:", OUTPUT)
 try:
     for state in TARGET_STATES:
         print("\n" + "=" * 55)
-        print(f"STARE ȚINTĂ: {state}")
+        print(f"TARGET STATE: {state}")
         print("=" * 55)
 
         if state in codes:
-            print(f"Ai deja un cod salvat pentru {state}.")
-            alegere = input("Apasa ENTER pentru a-l suprascrie, sau 's' urmat de ENTER pentru a-l sari: ")
-            if alegere.lower() == 's':
+            print(f"A code for {state} is already saved.")
+            choice = input("Press ENTER to overwrite it, or 's' followed by ENTER to skip: ")
+            if choice.lower() == 's':
                 continue
 
-        print(f"\n1. Asigura-te ca telecomanda fizica este la un pas distanta de starea '{state}'.")
-        print(f"2. Indreapta telecomanda spre blasterul Tuya.")
-        input(f"3. Apasa ENTER aici in consola, apoi apasa butonul pe telecomanda pentru a trece in '{state}'...")
+        print(f"\n1. Set the physical remote to the target state '{state}'.")
+        print(f"2. Point the remote at the Tuya blaster.")
+        input(f"3. Press ENTER here, then press the remote button to switch to '{state}'...")
 
-        print("\nPornesc learning...")
-        # Intra in modul de ascultare
+        print("\nStarting learning...")
+        # Enter listening mode
         ir.study_start()
 
-        print(f">>> TRANSMITE {state} DE PE TELECOMANDA ACUM <<<")
+        print(f">>> TRANSMIT {state} FROM THE REMOTE NOW <<<")
         
-        # Asteapta semnalul 15 secunde
+        # Wait for the signal for 15 seconds
         code = ir.receive_button(timeout=15)
         
-        # Iese imediat din modul de ascultare
+        # Exit listening mode immediately
         ir.study_end()
 
         if not code:
-            print("!!! Nu am primit niciun cod. Asigura-te ca ai indreptat telecomanda corect.")
+            print("!!! No code received. Make sure the remote is pointed correctly.")
             continue
 
         print("CAPTURE OK")
-        print(f"Cod Raw (fragment): {code[:20]}...")
+        print(f"Raw code (fragment): {code[:20]}...")
 
         codes[state] = code
 
         with open(OUTPUT, "w") as f:
             json.dump(codes, f, indent=2)
 
-        print(f"Salvat in {OUTPUT}")
+        print(f"Saved to {OUTPUT}")
 
-    print("\n=== TERMINAT CU SUCCES ===")
-    print(f"Fisierul {OUTPUT} contine acum {len(codes)} coduri.")
+    print("\n=== COMPLETED SUCCESSFULLY ===")
+    print(f"{OUTPUT} now contains {len(codes)} codes.")
 
 except KeyboardInterrupt:
-    print("\n\n!!! Intrerupt de utilizator !!!")
+    print("\n\n!!! Interrupted by user !!!")
 except Exception as e:
-    print(f"\n\n!!! Eroare: {e} !!!")
+    print(f"\n\n!!! Error: {e} !!!")
 finally:
-    print("\nIesire de siguranta din learning mode...")
+    print("\nSafely exiting learning mode...")
     try:
         ir.study_end()
     except:

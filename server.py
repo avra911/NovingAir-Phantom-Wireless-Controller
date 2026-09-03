@@ -149,9 +149,9 @@ async def poll_air_sensor_task():
                 HCHO        | <0.05 mg/m³   | 0.05-0.1      | >0.1
                 
                 Color coding:
-                🟢 Cyan (#00ffcc) = Good/Healthy
-                🟡 Orange (#f39c12) = Moderate/Caution
-                🔴 Red (#e74c3c) = Unhealthy/Poor
+                Cyan (#00ffcc) = Good/Healthy
+                Orange (#f39c12) = Moderate/Caution
+                Red (#e74c3c) = Unhealthy/Poor
                 """
                 
                 # TRIGGER OVERRIDE: CO2 > 1200 (Unhealthy CO2)

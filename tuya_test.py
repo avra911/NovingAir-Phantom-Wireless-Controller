@@ -31,7 +31,7 @@ print(f"   Status: {status}")
 if status and '201' in status.get('dps', {}):
     control_val = status['dps']['201']
     if 'study' in control_val:
-        print("   ⚠️  Device is in STUDY MODE - trying to exit...")
+        print("   WARNING: Device is in STUDY MODE - trying to exit...")
         ir.study_end()
         time.sleep(1)
         status = ir.status()
@@ -42,9 +42,9 @@ print("\n2. Loading button codes...")
 if os.path.exists(OUTPUT):
     with open(OUTPUT, "r") as f:
         codes = json.load(f)
-    print(f"   ✓ Loaded {len(codes)} codes: {list(codes.keys())}")
+    print(f"   OK: Loaded {len(codes)} codes: {list(codes.keys())}")
 else:
-    print(f"   ✗ File not found: {OUTPUT}")
+    print(f"   ERROR: File not found: {OUTPUT}")
     exit(1)
 
 # Send MODE command
@@ -55,9 +55,9 @@ if 'MODE' in codes:
     print(f"   Sending...")
     result = ir.send_button(mode_code)
     print(f"   Result: {result}")
-    print("   ✓ Command sent - You should hear a BEEP from Phantom!")
+    print("   OK: Command sent - You should hear a BEEP from Phantom!")
 else:
-    print("   ✗ MODE code not found in JSON")
+    print("   ERROR: MODE code not found in JSON")
 
 # Verify by checking status again
 time.sleep(0.5)
