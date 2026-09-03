@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "PhantomRemote",
+    "slug": "PhantomRemote",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "phantomremote",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
