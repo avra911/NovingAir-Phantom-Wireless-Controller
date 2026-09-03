@@ -1,0 +1,8 @@
+{
+  "mode": "AUTO",
+  "speed": 3,
+  "humidity": 3,
+  "flux": "RECOVERY",
+  "night": true,
+  "boost": true
+}

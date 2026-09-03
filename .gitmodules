@@ -1,0 +1,3 @@
+[submodule "tuya-local-key"]
+	path = tuya-local-key
+	url = git@github.com:vineetchoudhary/tuya-local-key.git
