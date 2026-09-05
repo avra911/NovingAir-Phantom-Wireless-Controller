@@ -17,7 +17,7 @@ export interface PhantomState {
   mode: 'AUTO' | 'SLEEP' | 'MANUAL';
   speed: number;
   humidity: number;
-  flux: 'RECOVERY' | 'SLAVE_MASTER' | 'INTAKE' | 'EXTRACT';
+  flux: 'SOUTH_NORTH' | 'EXTRACT' | 'INTAKE' | 'NORTH_SOUTH';
   night: boolean;
   boost: boolean;
 }
@@ -45,7 +45,7 @@ const DEFAULT_PHANTOM: PhantomState = {
   mode: 'AUTO',
   speed: 3,
   humidity: 3,
-  flux: 'RECOVERY',
+  flux: 'SOUTH_NORTH',
   night: false,
   boost: false,
 };
@@ -172,13 +172,13 @@ export default function Index() {
 
   const getFluxIcon = (flux: PhantomState['flux']) => {
     switch (flux) {
-      case 'RECOVERY':
+      case 'SOUTH_NORTH':
         return "sync";
-      case 'SLAVE_MASTER':
+      case 'EXTRACT':
         return "sync-off";
       case 'INTAKE':
         return "arrow-down-bold";
-      case 'EXTRACT':
+      case 'NORTH_SOUTH':
         return "arrow-up-bold";
       default:
         return "sync";
@@ -487,8 +487,8 @@ export default function Index() {
               />
 
               <Text style={styles.lcdText}>
-                {phantomState.flux === 'SLAVE_MASTER'
-                  ? 'S-MASTER'
+                {phantomState.flux === 'EXTRACT'
+                  ? 'EXTRACT'
                   : phantomState.flux}
               </Text>
             </View>

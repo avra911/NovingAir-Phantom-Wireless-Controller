@@ -56,7 +56,7 @@ class PhantomState(BaseModel):
     mode: str = "AUTO"
     speed: int = 3
     humidity: int = 3
-    flux: str = "RECOVERY"
+    flux: str = "SOUTH_NORTH"
     night: bool = False
     boost: bool = False
 
@@ -232,7 +232,7 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
         target_ir_key = f"MODE_{CURRENT_STATE['mode']}"
         
     elif btn_key == "FLUX":
-        fluxes = ["RECOVERY", "SLAVE_MASTER", "INTAKE", "EXTRACT"]
+        fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
         idx = fluxes.index(CURRENT_STATE["flux"]) if CURRENT_STATE["flux"] in fluxes else 0
         CURRENT_STATE["flux"] = fluxes[(idx + 1) % len(fluxes)]
         target_ir_key = f"FLUX_{CURRENT_STATE['flux']}"
