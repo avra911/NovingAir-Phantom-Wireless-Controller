@@ -19,12 +19,11 @@ ir = IRRemoteControlDevice(
 
 # List of all absolute states to capture
 TARGET_STATES = [
-    # "SPEED_1", "SPEED_2", "SPEED_3",
-    # "HUMIDITY_1", "HUMIDITY_2", "HUMIDITY_3",
-    "BOOST"
-    # "MODE_AUTO", "MODE_SLEEP", "MODE_MANUAL", "MODE_NIGHT",
-    # "FLUX_INTAKE", "FLUX_NORTH_SOUTH", "FLUX_SOUTH_NORTH", "FLUX_EXTRACT",
-    # "BOOST", "RESET"
+    "SPEED_1", "SPEED_2", "SPEED_3",
+    "HUMIDITY_1", "HUMIDITY_2", "HUMIDITY_3",
+    "MODE_AUTO", "MODE_SLEEP", "MODE_MANUAL", "MODE_NIGHT",
+    "FLUX_INTAKE", "FLUX_NORTH_SOUTH", "FLUX_SOUTH_NORTH", "FLUX_EXTRACT",
+    "BOOST", "RESET"
 ]
 
 if os.path.exists(OUTPUT):
