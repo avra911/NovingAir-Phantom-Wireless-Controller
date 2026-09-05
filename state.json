@@ -1,8 +1,0 @@
-{
-  "mode": "AUTO",
-  "speed": 3,
-  "humidity": 3,
-  "flux": "EXTRACT",
-  "night": false,
-  "boost": false
-}
