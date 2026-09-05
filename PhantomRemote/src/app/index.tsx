@@ -36,9 +36,17 @@ export interface SensorMetrics {
   online: boolean;
 }
 
+export interface EnvironmentalSensor {
+  temperature_c: number;
+  humidity_pct: number;
+  battery?: string | number;
+}
+
 export interface CombinedState {
   phantom: PhantomState;
   sensor: SensorMetrics;
+  indoor?: EnvironmentalSensor | null;
+  outdoor?: EnvironmentalSensor | null;
 }
 
 const DEFAULT_PHANTOM: PhantomState = {
@@ -69,6 +77,8 @@ export default function Index() {
   const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics>(DEFAULT_SENSOR);
   const [loading, setLoading] = useState<string | null>(null);
   const [initialFetching, setInitialFetching] = useState<boolean>(true);
+  const [indoorMetrics, setIndoorMetrics] = useState<EnvironmentalSensor | null>(null);
+  const [outdoorMetrics, setOutdoorMetrics] = useState<EnvironmentalSensor | null>(null);
 
   useEffect(() => {
     fetchState();
@@ -87,6 +97,8 @@ export default function Index() {
         const data: CombinedState = await res.json();
         setPhantomState(data.phantom);
         setSensorMetrics(data.sensor);
+        setIndoorMetrics(data.indoor ?? null);
+        setOutdoorMetrics(data.outdoor ?? null);
       }
     } catch (err) {
       console.error("Failed to sync initial state:", err);
@@ -113,6 +125,8 @@ export default function Index() {
 
       setPhantomState(updatedData.phantom);
       setSensorMetrics(updatedData.sensor);
+      setIndoorMetrics(updatedData.indoor ?? null);
+      setOutdoorMetrics(updatedData.outdoor ?? null);
     } catch (err) {
       console.error(`Error executing action ${actionKey}:`, err);
 
@@ -185,27 +199,6 @@ export default function Index() {
     }
   };
 
-  /*
-    HEALTH THRESHOLDS FOR AIR QUALITY METRICS
-
-    Metric      | Good          | Moderate      | Unhealthy
-    ============|===============|===============|===============
-    CO2         | <800 ppm      | 800-1200      | >1200
-    Temp        | 18-24°C       | 15-28°C       | <15 or >28
-    Humidity    | 30-50%        | 25-60%        | <25 or >60%
-    PM1.0       | <12 µg/m³     | 12-35         | 35-55 | >55
-    PM2.5       | <12 µg/m³     | 12-35         | 35-55 | >55
-    PM10        | <12 µg/m³     | 12-35         | 35-55 | >55
-    TVOC        | <0.3 mg/m³    | 0.3-1.0       | >1.0
-    HCHO        | <0.05 mg/m³   | 0.05-0.1      | >0.1
-
-    Color coding:
-    Cyan (#00ffcc) = Good/Healthy
-    Orange (#f39c12) = Moderate/Caution
-    Red (#e74c3c) = Unhealthy/Poor
-  */
-
-  // Health-based color coding functions
   const getCO2Color = (ppm: number) => {
     if (ppm < 800) return "#00ffcc";
     if (ppm < 1200) return "#f39c12";
@@ -262,7 +255,7 @@ export default function Index() {
       >
         <Text style={styles.title}>NovingAir Control Hub</Text>
 
-        {/* --- 8-IN-1 AIR QUALITY MONITOR PANEL --- */}
+        {/* --- AIR QUALITY MONITOR PANEL --- */}
         <View style={styles.sensorCard}>
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
@@ -271,10 +264,7 @@ export default function Index() {
                 size={24}
                 color={getCO2Color(sensorMetrics.co2_ppm)}
               />
-
-              <Text style={styles.cardHeaderTitle}>
-                AIR QUALITY
-              </Text>
+              <Text style={styles.cardHeaderTitle}>AIR QUALITY</Text>
             </View>
 
             <View style={styles.indicatorBlock}>
@@ -287,7 +277,6 @@ export default function Index() {
                 size={18}
                 color={sensorMetrics.online ? "#00ffcc" : "#e74c3c"}
               />
-
               <Text style={styles.statusText}>
                 {sensorMetrics.online
                   ? `${sensorMetrics.battery_pct}%`
@@ -296,7 +285,7 @@ export default function Index() {
             </View>
           </View>
 
-          {/* Metric Grid - 8 Indicators */}
+          {/* Metric Grid */}
           <View style={styles.metricsGrid}>
             <View style={styles.metricItem}>
               <Text style={styles.metricLabel}>CO2</Text>
@@ -401,6 +390,62 @@ export default function Index() {
                 <Text style={styles.unit}> mg/m³</Text>
               </Text>
             </View>
+
+            {/* Indoor Temperature */}
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>INDOOR TEMP</Text>
+              <Text
+                style={[
+                  styles.metricValue,
+                  { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }
+                ]}
+              >
+                {indoorMetrics?.temperature_c !== undefined ? indoorMetrics.temperature_c : '--'}
+                <Text style={styles.unit}> °C</Text>
+              </Text>
+            </View>
+
+            {/* Indoor Humidity */}
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>INDOOR HUM</Text>
+              <Text
+                style={[
+                  styles.metricValue,
+                  { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }
+                ]}
+              >
+                {indoorMetrics?.humidity_pct !== undefined ? indoorMetrics.humidity_pct : '--'}
+                <Text style={styles.unit}> %</Text>
+              </Text>
+            </View>
+
+            {/* Outdoor Temperature */}
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>OUTDOOR TEMP</Text>
+              <Text
+                style={[
+                  styles.metricValue,
+                  { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }
+                ]}
+              >
+                {outdoorMetrics?.temperature_c !== undefined ? outdoorMetrics.temperature_c : '--'}
+                <Text style={styles.unit}> °C</Text>
+              </Text>
+            </View>
+
+            {/* Outdoor Humidity */}
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>OUTDOOR HUM</Text>
+              <Text
+                style={[
+                  styles.metricValue,
+                  { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }
+                ]}
+              >
+                {outdoorMetrics?.humidity_pct !== undefined ? outdoorMetrics.humidity_pct : '--'}
+                <Text style={styles.unit}> %</Text>
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -410,9 +455,10 @@ export default function Index() {
             PHANTOM UNIT STATUS
           </Text>
 
+          {/* Row 1: Operating Mode & Speed/Humidity adjustments */}
           <View style={styles.lcdRow}>
-            {/* Operating mode */}
-            <View style={styles.indicatorBlock}>
+            {/* Operating mode (Primary active highlight) */}
+            <View style={styles.statusBoxActive}>
               <MaterialCommunityIcons
                 name={
                   phantomState.mode === 'AUTO'
@@ -421,99 +467,88 @@ export default function Index() {
                       ? "sleep"
                       : "gesture-tap"
                 }
-                size={22}
+                size={18}
                 color="#00ffcc"
               />
-
-              <Text style={styles.lcdText}>
-                {phantomState.mode}
-              </Text>
+              <View>
+                <Text style={styles.statusBoxLabel}>MODE</Text>
+                <Text style={styles.statusBoxValue}>{phantomState.mode}</Text>
+              </View>
             </View>
 
             {/* Fan speed */}
-            <View style={styles.indicatorBlock}>
+            <View style={[styles.statusBox, phantomState.mode === 'MANUAL' && styles.statusBoxHighlighted]}>
               <MaterialCommunityIcons
                 name="fan"
-                size={22}
-                color={
-                  phantomState.mode === 'MANUAL'
-                    ? "#00ffcc"
-                    : "#112a2a"
-                }
+                size={18}
+                color={phantomState.mode === 'MANUAL' ? "#00ffcc" : "#555"}
               />
-
-              <Text
-                style={[
-                  styles.lcdText,
-                  phantomState.mode !== 'MANUAL' &&
-                    styles.disabledText
-                ]}
-              >
-                SPD: {phantomState.speed}
-              </Text>
+              <View>
+                <Text style={[styles.statusBoxLabel, phantomState.mode !== 'MANUAL' && styles.disabledTextLabel]}>SPEED</Text>
+                <Text style={[styles.statusBoxValue, phantomState.mode !== 'MANUAL' && styles.disabledText]}>{phantomState.speed}</Text>
+              </View>
             </View>
 
             {/* Humidity level */}
-            <View style={styles.indicatorBlock}>
+            <View style={[styles.statusBox, phantomState.mode !== 'MANUAL' && styles.statusBoxHighlighted]}>
               <MaterialCommunityIcons
                 name="water-percent"
-                size={22}
-                color={
-                  phantomState.mode !== 'MANUAL'
-                    ? "#00ffcc"
-                    : "#112a2a"
-                }
+                size={18}
+                color={phantomState.mode !== 'MANUAL' ? "#00ffcc" : "#555"}
               />
-
-              <Text
-                style={[
-                  styles.lcdText,
-                  phantomState.mode === 'MANUAL' &&
-                    styles.disabledText
-                ]}
-              >
-                HUM: {phantomState.humidity}
-              </Text>
+              <View>
+                <Text style={[styles.statusBoxLabel, phantomState.mode === 'MANUAL' && styles.disabledTextLabel]}>HUM TARGET</Text>
+                <Text style={[styles.statusBoxValue, phantomState.mode === 'MANUAL' && styles.disabledText]}>{phantomState.humidity}</Text>
+              </View>
             </View>
           </View>
 
+          {/* Row 2: Airflow Direction (Secondary), Night, Boost */}
           <View style={styles.lcdRow}>
-            {/* Airflow direction */}
-            <View style={styles.indicatorBlock}>
+            {/* Airflow direction - Styled as a secondary parameter rather than glowing neon */}
+            <View style={styles.statusBox}>
               <MaterialCommunityIcons
                 name={getFluxIcon(phantomState.flux)}
-                size={20}
+                size={18}
                 color="#00ffcc"
               />
-
-              <Text style={styles.lcdText}>
-                {phantomState.flux === 'EXTRACT'
-                  ? 'EXTRACT'
-                  : phantomState.flux}
-              </Text>
+              <View>
+                <Text style={styles.statusBoxLabel}>FLUX</Text>
+                <Text style={styles.statusBoxValue}>
+                  {phantomState.flux === 'EXTRACT' ? 'EXTRACT' : phantomState.flux}
+                </Text>
+              </View>
             </View>
 
-            {/* Night mode indicator */}
-            <MaterialCommunityIcons
-              name="weather-night"
-              size={22}
-              color={
-                phantomState.night
-                  ? "#00ffcc"
-                  : "#112a2a"
-              }
-            />
+            {/* Night mode */}
+            <View style={[styles.statusBox, phantomState.night && styles.statusBoxHighlighted]}>
+              <MaterialCommunityIcons
+                name="weather-night"
+                size={18}
+                color={phantomState.night ? "#00ffcc" : "#555"}
+              />
+              <View>
+                <Text style={[styles.statusBoxLabel, !phantomState.night && styles.disabledTextLabel]}>NIGHT</Text>
+                <Text style={[styles.statusBoxValue, !phantomState.night && styles.disabledText]}>
+                  {phantomState.night ? 'ON' : 'OFF'}
+                </Text>
+              </View>
+            </View>
 
-            {/* Boost indicator */}
-            <MaterialCommunityIcons
-              name="lightning-bolt"
-              size={22}
-              color={
-                phantomState.boost
-                  ? "#00ffcc"
-                  : "#112a2a"
-              }
-            />
+            {/* Boost mode */}
+            <View style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}>
+              <MaterialCommunityIcons
+                name="lightning-bolt"
+                size={18}
+                color={phantomState.boost ? "#00ffcc" : "#555"}
+              />
+              <View>
+                <Text style={[styles.statusBoxLabel, !phantomState.boost && styles.disabledTextLabel]}>BOOST</Text>
+                <Text style={[styles.statusBoxValue, !phantomState.boost && styles.disabledText]}>
+                  {phantomState.boost ? 'ON' : 'OFF'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -542,7 +577,6 @@ export default function Index() {
                       size={20}
                       color="#fff"
                     />
-
                     <Text style={styles.btnText}>
                       {btn.label}
                     </Text>
@@ -575,7 +609,6 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
 
-  /* Sensor Card Styles */
   sensorCard: {
     width: '90%',
     backgroundColor: '#1a1d21',
@@ -643,7 +676,6 @@ const styles = StyleSheet.create({
     color: '#6c757d'
   },
 
-  /* LCD Screen Styles */
   lcdScreen: {
     width: '90%',
     backgroundColor: '#071515',
@@ -667,15 +699,62 @@ const styles = StyleSheet.create({
 
   lcdRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 6,
+    marginVertical: 4,
   },
 
   indicatorBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4
+  },
+
+  statusBox: {
+    flex: 1,
+    backgroundColor: '#0b1f1f',
+    borderColor: '#0b2e2e',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginHorizontal: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  statusBoxActive: {
+    flex: 1,
+    backgroundColor: '#0c2626',
+    borderColor: '#00ffcc',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginHorizontal: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  statusBoxHighlighted: {
+    borderColor: '#00ffcc',
+    backgroundColor: '#0c2626',
+  },
+
+  statusBoxLabel: {
+    color: '#00ffcc',
+    fontSize: 8,
+    fontWeight: 'bold',
+    opacity: 0.7,
+  },
+
+  statusBoxValue: {
+    color: '#00ffcc',
+    fontSize: 11,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
   },
 
   lcdText: {
@@ -686,10 +765,14 @@ const styles = StyleSheet.create({
   },
 
   disabledText: {
-    color: '#112a2a'
+    color: '#445555'
   },
 
-  /* Control Grid Styles */
+  disabledTextLabel: {
+    color: '#445555',
+    opacity: 1,
+  },
+
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
