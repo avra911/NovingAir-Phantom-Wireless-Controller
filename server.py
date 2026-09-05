@@ -16,6 +16,7 @@ from config import (
     SENSOR_ADDRESS,
     SENSOR_LOCAL_KEY,
 )
+from tasks import poll_air_sensor_task
 
 app = FastAPI()
 
@@ -49,8 +50,6 @@ co2_sensor = tinytuya.Device(
 )
 co2_sensor.set_socketTimeout(3)
 
-co2_override_active = False
-
 # --- MODELS & CACHE ---
 class PhantomState(BaseModel):
     mode: str = "AUTO"
@@ -62,7 +61,6 @@ class PhantomState(BaseModel):
 
 DEFAULT_STATE = PhantomState().model_dump()
 
-# Expanded to 8 metrics + battery status
 AIR_METRICS = {
     "co2_ppm": 0,
     "co2_state": "normal",
@@ -100,115 +98,74 @@ def load_button_codes() -> dict:
 CURRENT_STATE = load_state()
 BUTTON_CODES = load_button_codes()
 
-# --- BACKGROUND SENSOR POLLING ---
-async def poll_air_sensor_task():
-    """Polls the 8-in-1 sensor every 10 seconds and automates the HRV based on CO2."""
-    global AIR_METRICS, CURRENT_STATE, co2_override_active
-    
-    while True:
-        try:
-            loop = asyncio.get_event_loop()
-            status = await loop.run_in_executor(None, co2_sensor.status)
-            
-            if status and 'dps' in status:
-                dps = status['dps']
-                
-                # Update Metrics
-                AIR_METRICS.update({
-                    "co2_state": dps.get("1", "normal"),
-                    "co2_ppm": dps.get("2", 0),
-                    "temperature_c": dps.get("18", 0),
-                    "humidity_pct": dps.get("19", 0),
-                    "pm1_ugm3": dps.get("101", dps.get("23", dps.get("105", 0))),
-                    "pm25_ugm3": dps.get("20", 0),
-                    "pm10_ugm3": dps.get("102", dps.get("24", dps.get("106", 0))),
-                    "voc_mgm3": round(dps.get("21", 0) / 1000.0, 3),
-                    "ch2o_mgm3": round(dps.get("22", 0) / 1000.0, 3),
-                    "battery_pct": dps.get("15", 100),
-                    "online": True
-                })
-
-                co2 = AIR_METRICS["co2_ppm"]
-
-                # ==========================================
-                # AUTOMATION LOGIC
-                # ==========================================
-
-                """
-                HEALTH THRESHOLDS FOR AIR QUALITY METRICS
-                
-                Metric      | Good          | Moderate      | Unhealthy
-                ============|===============|===============|===============
-                CO2         | <800 ppm      | 800-1200      | >1200
-                Temp        | 18-24°C       | 15-28°C       | <15 or >28
-                Humidity    | 30-50%        | 25-60%        | <25 or >60%
-                PM1.0       | <12 µg/m³     | 12-35         | 35-55 | >55
-                PM2.5       | <12 µg/m³     | 12-35         | 35-55 | >55
-                PM10        | <12 µg/m³     | 12-35         | 35-55 | >55
-                TVOC        | <0.3 mg/m³    | 0.3-1.0       | >1.0
-                HCHO        | <0.05 mg/m³   | 0.05-0.1      | >0.1
-                
-                Color coding:
-                Cyan (#00ffcc) = Good/Healthy
-                Orange (#f39c12) = Moderate/Caution
-                Red (#e74c3c) = Unhealthy/Poor
-                """
-                
-                # TRIGGER OVERRIDE: CO2 > 1200 (Unhealthy CO2)
-                if co2 > 1200 and not co2_override_active:
-                    print(f"[AUTOMATION] CO2 high ({co2} ppm). Forcing quiet MANUAL Speed 2.")
-                    co2_override_active = True
-                    
-                    # 1. Switch to MANUAL
-                    CURRENT_STATE["mode"] = "MANUAL"
-                    if "MODE_MANUAL" in BUTTON_CODES:
-                        ir_device.send_button(BUTTON_CODES["MODE_MANUAL"])
-                        
-                    await asyncio.sleep(1.5)
-                    
-                    # 2. Switch to SPEED 2 (Balanced noise and airflow)
-                    CURRENT_STATE["speed"] = 2
-                    if "SPEED_2" in BUTTON_CODES:
-                        ir_device.send_button(BUTTON_CODES["SPEED_2"])
-                        
-                    save_state(CURRENT_STATE)
-
-                # RECOVER OVERRIDE: CO2 < 800 (Good CO2)
-                elif co2 < 800 and co2_override_active:
-                    print(f"[AUTOMATION] CO2 normalized ({co2} ppm). Restoring AUTO mode.")
-                    co2_override_active = False
-                    
-                    # 1. Switch to MANUAL
-                    CURRENT_STATE["mode"] = "MANUAL"
-                    if "MODE_MANUAL" in BUTTON_CODES:
-                        ir_device.send_button(BUTTON_CODES["MODE_MANUAL"])
-                        
-                    await asyncio.sleep(1.5)
-                    
-                    # 2. Switch to SPEED 1 (Balanced noise and airflow)
-                    CURRENT_STATE["speed"] = 1
-                    if "SPEED_1" in BUTTON_CODES:
-                        ir_device.send_button(BUTTON_CODES["SPEED_1"])
-                        
-                    save_state(CURRENT_STATE)
-
-
-        except Exception as e:
-            print(f"[SENSOR POLLING ERROR] {e}")
-            AIR_METRICS["online"] = False
-
-        await asyncio.sleep(10)
-
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(poll_air_sensor_task())
+    asyncio.create_task(
+        poll_air_sensor_task(
+            co2_sensor=co2_sensor,
+            ir_device=ir_device,
+            button_codes=BUTTON_CODES,
+            state_dict=CURRENT_STATE,
+            air_metrics_dict=AIR_METRICS,
+            save_state_func=save_state,
+            cloud=cloud,
+            indoor_device_id=os.getenv("INDOOR_SENSOR_DEVICE_ID"),
+            outdoor_device_id=os.getenv("OUTDOOR_SENSOR_DEVICE_ID")
+        )
+    )
+
+# --- TUYA CLOUD INIT ---
+cloud = tinytuya.Cloud(
+    apiRegion=os.getenv("TUYA_API_REGION", "eu"),
+    apiKey=os.getenv("TUYA_API_CLIENT_ID"),
+    apiSecret=os.getenv("TUYA_API_SECRET")
+)
+
+def get_zigbee_sensor_data(device_id: str):
+    try:
+        status = cloud.getstatus(device_id)
+        
+        dps = {}
+        if isinstance(status, dict):
+            result = status.get("result", [])
+            if isinstance(result, list):
+                dps = {item.get('code'): item.get('value') for item in result if isinstance(item, dict) and 'code' in item}
+            elif isinstance(result, dict):
+                dps = result
+            elif 'dps' in status:
+                dps = status['dps']
+        elif isinstance(status, list):
+            dps = {item.get('code'): item.get('value') for item in status if isinstance(item, dict) and 'code' in item}
+
+        raw_temp = dps.get("va_temperature") or dps.get("temp_current") or dps.get("temperature")
+        raw_hum = dps.get("va_humidity") or dps.get("humidity") or dps.get("humidity_value")
+        battery = dps.get("battery_percentage") or dps.get("battery_state") or dps.get("battery")
+
+        temp_c = None
+        if raw_temp is not None:
+            temp_c = raw_temp / 10.0 if raw_temp > 60 else float(raw_temp)
+
+        hum_pct = None
+        if raw_hum is not None:
+            hum_pct = raw_hum / 10.0 if raw_hum > 100 else float(raw_hum)
+
+        return {
+            "temperature_c": temp_c,
+            "humidity_pct": hum_pct,
+            "battery": battery
+        }
+    except Exception as e:
+        print(f"Error fetching Zigbee sensor {device_id}: {e}")
+        return {"temperature_c": None, "humidity_pct": None, "battery": None}
 
 # --- ENDPOINTS ---
 @app.get("/state")
 def get_state():
     return {
         "phantom": CURRENT_STATE,
-        "sensor": AIR_METRICS
+        "sensor": AIR_METRICS,
+        "indoor": get_zigbee_sensor_data(os.getenv("INDOOR_SENSOR_DEVICE_ID")),
+        "outdoor": get_zigbee_sensor_data(os.getenv("OUTDOOR_SENSOR_DEVICE_ID"))
     }
 
 @app.post("/command/{action}")
@@ -248,7 +205,6 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
     elif btn_key == "RESET":
         target_ir_key = "RESET"
 
-    # Transmit IR command
     if target_ir_key and target_ir_key in BUTTON_CODES:
         code = BUTTON_CODES[target_ir_key]
         try:
@@ -262,7 +218,6 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
 
     save_state(CURRENT_STATE)
     
-    # Return the combined updated state
     return {
         "phantom": CURRENT_STATE,
         "sensor": AIR_METRICS
