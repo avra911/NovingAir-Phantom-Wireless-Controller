@@ -99,13 +99,13 @@ async def poll_air_sensor_task(
                     outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
                     
                     if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        logging.info(f"Thermal decision: Outdoor temp ({outdoor_temp}°C) closer to ideal than indoor ({indoor_temp}°C). Setting FLUX_NORTH_SOUTH.")
+                        logging.info(f"Thermal decision: Outdoor temp ({outdoor_temp}°C) closer to ideal than indoor ({indoor_temp}°C). Activating directional flux (NORTH_SOUTH).")
                         state_dict["flux"] = "NORTH_SOUTH"
                         if "FLUX_NORTH_SOUTH" in button_codes:
                             ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
                         await asyncio.sleep(1.5)
                     else:
-                        logging.info(f"Thermal decision: Indoor temp preferred. Using standard flux.")
+                        logging.info(f"Thermal decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Switching to MANUAL mode for temperature conservation.")
 
                     state_dict["mode"] = "MANUAL"
                     if "MODE_MANUAL" in button_codes:
@@ -122,8 +122,24 @@ async def poll_air_sensor_task(
 
                 # Handle normalization recovery
                 elif co2 < CO2_LOW_THRESHOLD and co2_override_active:
-                    logging.info(f"CO2 normalized ({co2} ppm). Restoring AUTO mode and default flux.")
+                    logging.info(f"CO2 normalized ({co2} ppm). Evaluating thermal conditions for recovery state.")
                     co2_override_active = False
+                    
+                    indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
+                    outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
+
+                    if _should_use_direct_flow(indoor_temp, outdoor_temp):
+                        logging.info(f"Thermal recovery decision: Outdoor temp ({outdoor_temp}°C) closer to ideal than indoor ({indoor_temp}°C). Setting flux to NORTH_SOUTH at Speed 1.")
+                        state_dict["flux"] = "NORTH_SOUTH"
+                        if "FLUX_NORTH_SOUTH" in button_codes:
+                            ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
+                        await asyncio.sleep(1.5)
+                    else:
+                        logging.info(f"Thermal recovery decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Setting default flux SOUTH_NORTH at Speed 1.")
+                        state_dict["flux"] = "SOUTH_NORTH"
+                        if "FLUX_SOUTH_NORTH" in button_codes:
+                            ir_device.send_button(button_codes["FLUX_SOUTH_NORTH"])
+                        await asyncio.sleep(1.5)
                     
                     state_dict["mode"] = "MANUAL"
                     if "MODE_MANUAL" in button_codes:
@@ -134,9 +150,6 @@ async def poll_air_sensor_task(
                     if "SPEED_1" in button_codes:
                         ir_device.send_button(button_codes["SPEED_1"])
 
-                    state_dict["flux"] = "SOUTH_NORTH"
-                    if "FLUX_SOUTH_NORTH" in button_codes:
-                        ir_device.send_button(button_codes["FLUX_SOUTH_NORTH"])
                     save_state_func(state_dict)
 
         except Exception as e:
