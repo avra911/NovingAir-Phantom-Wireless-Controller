@@ -43,7 +43,6 @@ def fetch_zigbee_temp(cloud, device_id: str) -> float | None:
     return None
 
 def _get_target_speed() -> int:
-    # Force the datetime object to use Bucharest time
     current_hour = datetime.now(ZoneInfo("Europe/Bucharest")).hour
     is_night = current_hour >= NIGHT_START_HOUR or current_hour < NIGHT_END_HOUR
     return 2 if is_night else 3
@@ -101,14 +100,18 @@ async def poll_air_sensor_task(
                     outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
                     
                     if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        logging.info(f"Thermal decision: Outdoor temp ({outdoor_temp}°C) closer to ideal than indoor ({indoor_temp}°C). Activating directional flux (NORTH_SOUTH).")
+                        logging.info(f"Thermal decision: Activating directional flux (NORTH_SOUTH).")
                         state_dict["flux"] = "NORTH_SOUTH"
+                        state_dict["mode"] = "NONE"
+                        state_dict["boost"] = False
                         if "FLUX_NORTH_SOUTH" in button_codes:
                             ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
                         await asyncio.sleep(1.5)
                     else:
-                        logging.info(f"Thermal decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Switching to MANUAL mode for temperature conservation.")
+                        logging.info(f"Thermal decision: Switching to MANUAL mode.")
                         state_dict["mode"] = "MANUAL"
+                        state_dict["flux"] = "NONE"
+                        state_dict["boost"] = False
                         if "MODE_MANUAL" in button_codes:
                             ir_device.send_button(button_codes["MODE_MANUAL"])
                         await asyncio.sleep(1.5)
@@ -130,14 +133,18 @@ async def poll_air_sensor_task(
                     outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
 
                     if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        logging.info(f"Thermal recovery decision: Outdoor temp ({outdoor_temp}°C) closer to ideal than indoor ({indoor_temp}°C). Setting flux to NORTH_SOUTH at Speed 1.")
+                        logging.info(f"Thermal recovery decision: Setting flux to NORTH_SOUTH at Speed 1.")
                         state_dict["flux"] = "NORTH_SOUTH"
+                        state_dict["mode"] = "NONE"
+                        state_dict["boost"] = False
                         if "FLUX_NORTH_SOUTH" in button_codes:
                             ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
                         await asyncio.sleep(1.5)
                     else:
-                        logging.info(f"Thermal recovery decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Setting default flux SOUTH_NORTH at Speed 1.")
+                        logging.info(f"Thermal recovery decision: Setting MANUAL mode at Speed 1.")
                         state_dict["mode"] = "MANUAL"
+                        state_dict["flux"] = "NONE"
+                        state_dict["boost"] = False
                         if "MODE_MANUAL" in button_codes:
                             ir_device.send_button(button_codes["MODE_MANUAL"])
                         await asyncio.sleep(1.5)

@@ -41,7 +41,6 @@ ir_device = IRRemoteControlDevice(
     control_type=1
 )
 
-# 8-in-1 Sensor (Protocol 3.5)
 co2_sensor = tinytuya.Device(
     dev_id=SENSOR_DEVICE_ID,
     address=SENSOR_ADDRESS,
@@ -184,14 +183,18 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
         
     elif btn_key == "MODE":
         modes = ["AUTO", "SLEEP", "MANUAL"]
-        idx = modes.index(CURRENT_STATE["mode"]) if CURRENT_STATE["mode"] in modes else 0
+        idx = modes.index(CURRENT_STATE["mode"]) if CURRENT_STATE["mode"] in modes else -1
         CURRENT_STATE["mode"] = modes[(idx + 1) % len(modes)]
+        CURRENT_STATE["flux"] = "NONE"
+        CURRENT_STATE["boost"] = False
         target_ir_key = f"MODE_{CURRENT_STATE['mode']}"
         
     elif btn_key == "FLUX":
         fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
-        idx = fluxes.index(CURRENT_STATE["flux"]) if CURRENT_STATE["flux"] in fluxes else 0
+        idx = fluxes.index(CURRENT_STATE["flux"]) if CURRENT_STATE["flux"] in fluxes else -1
         CURRENT_STATE["flux"] = fluxes[(idx + 1) % len(fluxes)]
+        CURRENT_STATE["mode"] = "NONE"
+        CURRENT_STATE["boost"] = False
         target_ir_key = f"FLUX_{CURRENT_STATE['flux']}"
         
     elif btn_key == "NIGHT":
@@ -200,6 +203,9 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
         
     elif btn_key == "BOOST":
         CURRENT_STATE["boost"] = not CURRENT_STATE["boost"]
+        if CURRENT_STATE["boost"]:
+            CURRENT_STATE["mode"] = "NONE"
+            CURRENT_STATE["flux"] = "NONE"
         target_ir_key = "BOOST"
         
     elif btn_key == "RESET":
