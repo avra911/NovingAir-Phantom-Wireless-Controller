@@ -13,7 +13,6 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// 1. Update interfaces to accept 'NONE'
 export interface PhantomState {
   mode: 'AUTO' | 'SLEEP' | 'MANUAL' | 'NONE';
   speed: number;
@@ -21,6 +20,7 @@ export interface PhantomState {
   flux: 'SOUTH_NORTH' | 'EXTRACT' | 'INTAKE' | 'NORTH_SOUTH' | 'NONE';
   night: boolean;
   boost: boolean;
+  automation_enabled: boolean;
 }
 
 export interface SensorMetrics {
@@ -57,6 +57,7 @@ const DEFAULT_PHANTOM: PhantomState = {
   flux: 'NONE',
   night: false,
   boost: false,
+  automation_enabled: true,
 };
 
 const DEFAULT_SENSOR: SensorMetrics = {
@@ -113,7 +114,9 @@ export default function Index() {
         body: payload ? JSON.stringify(payload) : undefined,
       });
 
-      if (!res.ok) throw new Error(`Server returned HTTP status ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP status ${res.status}`);
+      }
 
       const updatedData: CombinedState = await res.json();
       setPhantomState(updatedData.phantom);
@@ -135,10 +138,15 @@ export default function Index() {
     { label: "MODE", key: "MODE", color: "#27ae60", icon: "options-outline" },
     { label: "FLUX", key: "FLUX", color: "#8e44ad", icon: "swap-horizontal-outline" },
     { label: "HUMIDITY", key: "HUMIDITY", color: "#d35400", icon: "water-outline" },
+    { 
+      label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)", 
+      key: "TOGGLE_AUTO", 
+      color: phantomState.automation_enabled ? "#27ae60" : "#555", 
+      icon: "hardware-chip-outline" 
+    },
     { label: "RESET", key: "RESET", color: "#7f8c8d", icon: "refresh-outline" },
   ];
 
-  // 2. Add fallback icon for 'NONE' flux
   const getFluxIcon = (flux: PhantomState['flux']) => {
     switch (flux) {
       case 'SOUTH_NORTH': return "sync";
@@ -302,9 +310,7 @@ export default function Index() {
         <View style={styles.lcdScreen}>
           <Text style={styles.lcdHeaderTitle}>PHANTOM UNIT STATUS</Text>
 
-          {/* Row 1 */}
           <View style={styles.lcdRow}>
-            {/* Dynamic Mode Box */}
             <View style={[styles.statusBox, phantomState.mode !== 'NONE' && styles.statusBoxHighlighted]}>
               <MaterialCommunityIcons
                 name={
@@ -322,7 +328,6 @@ export default function Index() {
               </View>
             </View>
 
-            {/* SPEED: Active in MANUAL or when FLUX is active */}
             <View style={[
               styles.statusBox, 
               (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.statusBoxHighlighted
@@ -340,7 +345,6 @@ export default function Index() {
               </View>
             </View>
 
-            {/* HUMIDITY: Active ONLY in AUTO or SLEEP */}
             <View style={[
               styles.statusBox, 
               (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.statusBoxHighlighted
@@ -359,9 +363,7 @@ export default function Index() {
             </View>
           </View>
 
-          {/* Row 2 */}
           <View style={styles.lcdRow}>
-            {/* 4. Make Flux Box Dynamic */}
             <View style={[styles.statusBox, phantomState.flux !== 'NONE' && styles.statusBoxHighlighted]}>
               <MaterialCommunityIcons
                 name={getFluxIcon(phantomState.flux)}
@@ -390,7 +392,6 @@ export default function Index() {
               </View>
             </View>
 
-            {/* 5. Boost is already dynamically styled */}
             <View style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}>
               <MaterialCommunityIcons
                 name="lightning-bolt"
@@ -436,20 +437,9 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#121212'
-  },
-  scrollContent: {
-    alignItems: 'center',
-    paddingVertical: 20
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 16
-  },
+  container: { flex: 1, backgroundColor: '#121212' },
+  scrollContent: { alignItems: 'center', paddingVertical: 20 },
+  title: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 16 },
   sensorCard: {
     width: '90%',
     backgroundColor: '#1a1d21',
@@ -468,22 +458,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2d3238',
     paddingBottom: 8,
   },
-  cardHeaderTitle: {
-    color: '#8e9aaf',
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1
-  },
-  statusText: {
-    color: '#8e9aaf',
-    fontSize: 11,
-    fontFamily: 'monospace'
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
+  cardHeaderTitle: { color: '#8e9aaf', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
+  statusText: { color: '#8e9aaf', fontSize: 11, fontFamily: 'monospace' },
+  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   metricItem: {
     width: '23%',
     backgroundColor: '#121417',
@@ -492,22 +469,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignItems: 'center',
   },
-  metricLabel: {
-    color: '#6c757d',
-    fontSize: 9,
-    fontWeight: 'bold',
-    marginBottom: 2
-  },
-  metricValue: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    fontFamily: 'monospace'
-  },
-  unit: {
-    fontSize: 8,
-    color: '#6c757d'
-  },
+  metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
+  metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
+  unit: { fontSize: 8, color: '#6c757d' },
   lcdScreen: {
     width: '90%',
     backgroundColor: '#071515',
@@ -527,17 +491,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     opacity: 0.6,
   },
-  lcdRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  indicatorBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4
-  },
+  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
+  indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
     backgroundColor: '#0b1f1f',
@@ -551,42 +506,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  // Removed statusBoxActive entirely, it is no longer needed since we use dynamic arrays!
-  statusBoxHighlighted: {
-    borderColor: '#00ffcc',
-    backgroundColor: '#0c2626',
-  },
-  statusBoxLabel: {
-    color: '#00ffcc',
-    fontSize: 8,
-    fontWeight: 'bold',
-    opacity: 0.7,
-  },
-  statusBoxValue: {
-    color: '#00ffcc',
-    fontSize: 11,
-    fontWeight: 'bold',
-    fontFamily: 'monospace',
-  },
-  lcdText: {
-    color: '#00ffcc',
-    fontSize: 13,
-    fontWeight: 'bold',
-    fontFamily: 'monospace'
-  },
-  disabledText: {
-    color: '#445555'
-  },
-  disabledTextLabel: {
-    color: '#445555',
-    opacity: 1,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    width: '90%'
-  },
+  statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#0c2626' },
+  statusBoxLabel: { color: '#00ffcc', fontSize: 8, fontWeight: 'bold', opacity: 0.7 },
+  statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
+  lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
+  disabledText: { color: '#445555' },
+  disabledTextLabel: { color: '#445555', opacity: 1 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: '90%' },
   button: {
     width: '42%',
     height: 56,
@@ -598,12 +524,6 @@ const styles = StyleSheet.create({
     gap: 8,
     elevation: 4,
   },
-  disabledButton: {
-    opacity: 0.25,
-  },
-  btnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700'
-  },
+  disabledButton: { opacity: 0.25 },
+  btnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

@@ -57,6 +57,7 @@ class PhantomState(BaseModel):
     flux: str = "SOUTH_NORTH"
     night: bool = False
     boost: bool = False
+    automation_enabled: bool = True
 
 DEFAULT_STATE = PhantomState().model_dump()
 
@@ -78,7 +79,10 @@ def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "automation_enabled" not in data:
+                    data["automation_enabled"] = True
+                return data
         except Exception:
             pass
     return DEFAULT_STATE.copy()
@@ -208,6 +212,10 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
             CURRENT_STATE["flux"] = "NONE"
         target_ir_key = "BOOST"
         
+    elif btn_key == "TOGGLE_AUTO":
+        CURRENT_STATE["automation_enabled"] = not CURRENT_STATE.get("automation_enabled", True)
+        # No IR target to send; this is internal state control only
+        
     elif btn_key == "RESET":
         target_ir_key = "RESET"
 
@@ -219,7 +227,7 @@ def handle_command(action: str, payload: Optional[dict] = Body(None)):
         except Exception as e:
             print(f"[IR ERROR] Failed to send {target_ir_key}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-    else:
+    elif target_ir_key:
         print(f"[WARNING] Key '{target_ir_key}' not mapped in {BUTTON_CODES_FILE}")
 
     save_state(CURRENT_STATE)

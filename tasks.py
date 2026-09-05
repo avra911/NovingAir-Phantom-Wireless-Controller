@@ -90,70 +90,74 @@ async def poll_air_sensor_task(
 
                 co2 = air_metrics_dict["co2_ppm"]
 
-                # Handle high CO2 threshold override
-                if co2 > CO2_HIGH_THRESHOLD and not co2_override_active:
-                    logging.info(f"CO2 high threshold reached ({co2} ppm). Evaluating time and thermal conditions.")
-                    co2_override_active = True
-                    
-                    target_speed = _get_target_speed()
-                    indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
-                    outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
-                    
-                    if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        logging.info(f"Thermal decision: Activating directional flux (NORTH_SOUTH).")
-                        state_dict["flux"] = "NORTH_SOUTH"
-                        state_dict["mode"] = "NONE"
-                        state_dict["boost"] = False
-                        if "FLUX_NORTH_SOUTH" in button_codes:
-                            ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
-                        await asyncio.sleep(1.5)
-                    else:
-                        logging.info(f"Thermal decision: Switching to MANUAL mode.")
-                        state_dict["mode"] = "MANUAL"
-                        state_dict["flux"] = "NONE"
-                        state_dict["boost"] = False
-                        if "MODE_MANUAL" in button_codes:
-                            ir_device.send_button(button_codes["MODE_MANUAL"])
-                        await asyncio.sleep(1.5)
-
-                    state_dict["speed"] = target_speed
-                    speed_key = f"SPEED_{target_speed}"
-                    if speed_key in button_codes:
-                        logging.info(f"Setting ventilation speed to {target_speed}.")
-                        ir_device.send_button(button_codes[speed_key])
-                        
-                    save_state_func(state_dict)
-
-                # Handle normalization recovery
-                elif co2 < CO2_LOW_THRESHOLD and co2_override_active:
-                    logging.info(f"CO2 normalized ({co2} ppm). Evaluating thermal conditions for recovery state.")
+                # If automation override is off via dashboard, reset active tracking and skip handling
+                if not state_dict.get("automation_enabled", True):
                     co2_override_active = False
-                    
-                    indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
-                    outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
+                else:
+                    # Handle high CO2 threshold override
+                    if co2 > CO2_HIGH_THRESHOLD and not co2_override_active:
+                        logging.info(f"CO2 high threshold reached ({co2} ppm). Evaluating time and thermal conditions.")
+                        co2_override_active = True
+                        
+                        target_speed = _get_target_speed()
+                        indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
+                        outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
+                        
+                        if _should_use_direct_flow(indoor_temp, outdoor_temp):
+                            logging.info(f"Thermal decision: Activating directional flux (NORTH_SOUTH).")
+                            state_dict["flux"] = "NORTH_SOUTH"
+                            state_dict["mode"] = "NONE"
+                            state_dict["boost"] = False
+                            if "FLUX_NORTH_SOUTH" in button_codes:
+                                ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
+                            await asyncio.sleep(1.5)
+                        else:
+                            logging.info(f"Thermal decision: Switching to MANUAL mode.")
+                            state_dict["mode"] = "MANUAL"
+                            state_dict["flux"] = "NONE"
+                            state_dict["boost"] = False
+                            if "MODE_MANUAL" in button_codes:
+                                ir_device.send_button(button_codes["MODE_MANUAL"])
+                            await asyncio.sleep(1.5)
 
-                    if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        logging.info(f"Thermal recovery decision: Setting flux to NORTH_SOUTH at Speed 1.")
-                        state_dict["flux"] = "NORTH_SOUTH"
-                        state_dict["mode"] = "NONE"
-                        state_dict["boost"] = False
-                        if "FLUX_NORTH_SOUTH" in button_codes:
-                            ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
-                        await asyncio.sleep(1.5)
-                    else:
-                        logging.info(f"Thermal recovery decision: Setting MANUAL mode at Speed 1.")
-                        state_dict["mode"] = "MANUAL"
-                        state_dict["flux"] = "NONE"
-                        state_dict["boost"] = False
-                        if "MODE_MANUAL" in button_codes:
-                            ir_device.send_button(button_codes["MODE_MANUAL"])
-                        await asyncio.sleep(1.5)
-                    
-                    state_dict["speed"] = 1
-                    if "SPEED_1" in button_codes:
-                        ir_device.send_button(button_codes["SPEED_1"])
+                        state_dict["speed"] = target_speed
+                        speed_key = f"SPEED_{target_speed}"
+                        if speed_key in button_codes:
+                            logging.info(f"Setting ventilation speed to {target_speed}.")
+                            ir_device.send_button(button_codes[speed_key])
+                            
+                        save_state_func(state_dict)
 
-                    save_state_func(state_dict)
+                    # Handle normalization recovery
+                    elif co2 < CO2_LOW_THRESHOLD and co2_override_active:
+                        logging.info(f"CO2 normalized ({co2} ppm). Evaluating thermal conditions for recovery state.")
+                        co2_override_active = False
+                        
+                        indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
+                        outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
+
+                        if _should_use_direct_flow(indoor_temp, outdoor_temp):
+                            logging.info(f"Thermal recovery decision: Setting flux to NORTH_SOUTH at Speed 1.")
+                            state_dict["flux"] = "NORTH_SOUTH"
+                            state_dict["mode"] = "NONE"
+                            state_dict["boost"] = False
+                            if "FLUX_NORTH_SOUTH" in button_codes:
+                                ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
+                            await asyncio.sleep(1.5)
+                        else:
+                            logging.info(f"Thermal recovery decision: Setting MANUAL mode at Speed 1.")
+                            state_dict["mode"] = "MANUAL"
+                            state_dict["flux"] = "NONE"
+                            state_dict["boost"] = False
+                            if "MODE_MANUAL" in button_codes:
+                                ir_device.send_button(button_codes["MODE_MANUAL"])
+                            await asyncio.sleep(1.5)
+                        
+                        state_dict["speed"] = 1
+                        if "SPEED_1" in button_codes:
+                            ir_device.send_button(button_codes["SPEED_1"])
+
+                        save_state_func(state_dict)
 
         except Exception as e:
             logging.error(f"SENSOR POLLING ERROR: {e}")

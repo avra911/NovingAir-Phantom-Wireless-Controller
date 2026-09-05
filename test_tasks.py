@@ -12,7 +12,7 @@ async def test_scenario_1_normal_co2():
     
     mock_ir = MagicMock()
     button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_2": "BTN_S2"}
-    state_dict = {"mode": "AUTO", "speed": 3, "flux": "NONE", "boost": False}
+    state_dict = {"mode": "AUTO", "speed": 3, "flux": "NONE", "boost": False, "automation_enabled": True}
     air_metrics = {}
     save_func = MagicMock()
     mock_cloud = MagicMock()
@@ -53,7 +53,7 @@ async def test_scenario_2_high_co2_cooler_outdoor():
         "SPEED_3": "BTN_S3", 
         "FLUX_NORTH_SOUTH": "BTN_NS"
     }
-    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False}
+    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": True}
     air_metrics = {}
     save_func = MagicMock()
     
@@ -107,7 +107,7 @@ async def test_scenario_3_high_co2_indoor_preferred():
         "MODE_MANUAL": "BTN_MANUAL", 
         "SPEED_3": "BTN_S3"
     }
-    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False}
+    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": True}
     air_metrics = {}
     save_func = MagicMock()
     
@@ -162,7 +162,7 @@ async def test_scenario_4_recovery_indoor_preferred():
         "MODE_MANUAL": "BTN_MANUAL", 
         "SPEED_1": "BTN_S1"
     }
-    state_dict = {"mode": "NONE", "speed": 3, "flux": "NORTH_SOUTH", "boost": False}
+    state_dict = {"mode": "NONE", "speed": 3, "flux": "NORTH_SOUTH", "boost": False, "automation_enabled": True}
     air_metrics = {}
     save_func = MagicMock()
     
@@ -210,7 +210,7 @@ async def test_scenario_day_speed_rule():
     mock_sensor.status.return_value = {"dps": {"1": "alarm", "2": 1250}}
     mock_ir = MagicMock()
     button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_3": "BTN_S3"}
-    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False}
+    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": True}
     save_func = MagicMock()
     mock_cloud = MagicMock()
 
@@ -248,7 +248,7 @@ async def test_scenario_night_speed_rule():
     mock_sensor.status.return_value = {"dps": {"1": "alarm", "2": 1250}}
     mock_ir = MagicMock()
     button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_2": "BTN_S2"}
-    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False}
+    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": True}
     save_func = MagicMock()
     mock_cloud = MagicMock()
 
@@ -278,3 +278,39 @@ async def test_scenario_night_speed_rule():
 
     assert state_dict["speed"] == 2
     mock_ir.send_button.assert_any_call("BTN_S2")
+
+
+@pytest.mark.asyncio
+async def test_scenario_automation_disabled():
+    mock_sensor = MagicMock()
+    mock_sensor.status.return_value = {"dps": {"1": "alarm", "2": 1500}} # High CO2
+    mock_ir = MagicMock()
+    button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_3": "BTN_S3"}
+    # Setup state with automation explicitly disabled
+    state_dict = {"mode": "AUTO", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": False}
+    air_metrics = {}
+    save_func = MagicMock()
+    mock_cloud = MagicMock()
+
+    async def mock_sleep(secs):
+        if secs == 10:
+            raise InterruptedError
+
+    with patch("asyncio.sleep", side_effect=mock_sleep):
+        with pytest.raises(InterruptedError):
+            await poll_air_sensor_task(
+                co2_sensor=mock_sensor,
+                ir_device=mock_ir,
+                button_codes=button_codes,
+                state_dict=state_dict,
+                air_metrics_dict=air_metrics,
+                save_state_func=save_func,
+                cloud=mock_cloud,
+                indoor_device_id="indoor_id",
+                outdoor_device_id="outdoor_id"
+            )
+
+    # Ensure no commands were sent and state hasn't changed despite high CO2
+    assert state_dict["mode"] == "AUTO"
+    assert state_dict["speed"] == 1
+    mock_ir.send_button.assert_not_called()
