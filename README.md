@@ -11,7 +11,7 @@ The project has two parts:
 
 - Python 3.10+
 - A Python virtual environment with `tinytuya`, `fastapi`, and `uvicorn`
-- Node.js and npm
+- Node.js, npm, and global `serve` package (`sudo npm install -g serve`)
 - The Tuya IR blaster and air-quality sensor reachable on the local network
 
 ## Configuration
@@ -42,7 +42,7 @@ EXPO_PUBLIC_API_URL=http://YOUR_BACKEND_IP:8000
 
 Never commit either `.env` file. They are ignored by Git.
 
-## Run the backend
+## Run the backend (Development)
 
 From the repository root:
 
@@ -60,7 +60,7 @@ Useful endpoints:
 - `POST /command/MODE` cycles `AUTO -> SLEEP -> MANUAL`.
 - `POST /command/HUMIDITY`, `/FLUX`, `/NIGHT`, `/BOOST`, and `/RESET` control the remaining functions.
 
-## Run the mobile app
+## Run the mobile app (Development)
 
 In another terminal:
 
@@ -71,6 +71,76 @@ npx expo start
 ```
 
 Use Expo Go, an emulator, or the web option. The phone and backend machine must be able to reach each other over the local network.
+
+## Production Setup (Systemd Deployment)
+
+For persistent background execution on a local server (e.g., Linux NUC / Raspberry Pi), run both backend and web frontend as persistent systemd services.
+
+### 1. Build Frontend Static Bundle
+
+Environment variables are statically baked into the Expo web bundle at build time. Clean cache and build against your server's local IP:
+
+```bash
+cd PhantomRemote
+npm install
+EXPO_PUBLIC_API_URL=http://YOUR_SERVER_IP:8000 npx expo export -p web --clear
+```
+
+### 2. Configure Firewall (UFW)
+
+Ensure incoming traffic to both the FastAPI backend and web frontend ports is permitted:
+
+```bash
+sudo ufw allow 8000/tcp
+sudo ufw allow 3000/tcp
+sudo ufw reload
+```
+
+### 3. Create Systemd Service Configurations
+
+#### Backend Service (`/etc/systemd/system/phantom-backend.service`)
+```ini
+[Unit]
+Description=NovingAir Phantom Backend Service
+After=network.target
+
+[Service]
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/Projects/NovingAir
+ExecStart=/home/YOUR_USER/Projects/NovingAir/.venv/bin/python3 server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Frontend Service (`/etc/systemd/system/phantom-frontend.service`)
+```ini
+[Unit]
+Description=NovingAir Phantom React Frontend
+After=network.target
+
+[Service]
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/Projects/NovingAir/PhantomRemote
+ExecStart=/usr/bin/serve -s dist -l 3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 4. Enable and Launch Services
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now phantom-backend.service
+sudo systemctl enable --now phantom-frontend.service
+```
+
+Access the control interface from any local browser at `http://YOUR_SERVER_IP:3000`.
 
 ## IR code capture
 
