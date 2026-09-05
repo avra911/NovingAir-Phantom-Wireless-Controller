@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --- CONFIGURATION CONSTANTS ---
 CO2_HIGH_THRESHOLD = 1200
@@ -42,7 +43,8 @@ def fetch_zigbee_temp(cloud, device_id: str) -> float | None:
     return None
 
 def _get_target_speed() -> int:
-    current_hour = datetime.now().hour
+    # Force the datetime object to use Bucharest time
+    current_hour = datetime.now(ZoneInfo("Europe/Bucharest")).hour
     is_night = current_hour >= NIGHT_START_HOUR or current_hour < NIGHT_END_HOUR
     return 2 if is_night else 3
 
