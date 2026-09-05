@@ -106,12 +106,11 @@ async def poll_air_sensor_task(
                         await asyncio.sleep(1.5)
                     else:
                         logging.info(f"Thermal decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Switching to MANUAL mode for temperature conservation.")
+                        state_dict["mode"] = "MANUAL"
+                        if "MODE_MANUAL" in button_codes:
+                            ir_device.send_button(button_codes["MODE_MANUAL"])
+                        await asyncio.sleep(1.5)
 
-                    state_dict["mode"] = "MANUAL"
-                    if "MODE_MANUAL" in button_codes:
-                        ir_device.send_button(button_codes["MODE_MANUAL"])
-                    await asyncio.sleep(1.5)
-                    
                     state_dict["speed"] = target_speed
                     speed_key = f"SPEED_{target_speed}"
                     if speed_key in button_codes:
@@ -136,15 +135,10 @@ async def poll_air_sensor_task(
                         await asyncio.sleep(1.5)
                     else:
                         logging.info(f"Thermal recovery decision: Indoor temp ({indoor_temp}°C) preferred over outdoor ({outdoor_temp}°C). Setting default flux SOUTH_NORTH at Speed 1.")
-                        state_dict["flux"] = "SOUTH_NORTH"
-                        if "FLUX_SOUTH_NORTH" in button_codes:
-                            ir_device.send_button(button_codes["FLUX_SOUTH_NORTH"])
+                        state_dict["mode"] = "MANUAL"
+                        if "MODE_MANUAL" in button_codes:
+                            ir_device.send_button(button_codes["MODE_MANUAL"])
                         await asyncio.sleep(1.5)
-                    
-                    state_dict["mode"] = "MANUAL"
-                    if "MODE_MANUAL" in button_codes:
-                        ir_device.send_button(button_codes["MODE_MANUAL"])
-                    await asyncio.sleep(1.5)
                     
                     state_dict["speed"] = 1
                     if "SPEED_1" in button_codes:
