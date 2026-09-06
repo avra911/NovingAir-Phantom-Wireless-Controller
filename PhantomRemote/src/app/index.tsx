@@ -279,29 +279,56 @@ export default function Index() {
                 {sensorMetrics.ch2o_mgm3}<Text style={styles.unit}> mg/m³</Text>
               </Text>
             </View>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>INDOOR TEMP</Text>
-              <Text style={[styles.metricValue, { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }]}>
-                {indoorMetrics?.temperature_c !== undefined ? indoorMetrics.temperature_c : '--'}<Text style={styles.unit}> °C</Text>
-              </Text>
+          </View>
+        </View>
+
+        {/* --- ZIGBEE SENSORS PANEL --- */}
+        <View style={styles.zigbeeContainer}>
+          {/* Indoor Sensor Box */}
+          <View style={styles.zigbeeCard}>
+            <View style={styles.indicatorBlock}>
+              <Ionicons name="home-outline" size={14} color="#8e9aaf" />
+              <Text style={styles.zigbeeCardTitle}>INDOOR</Text>
             </View>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>INDOOR HUM</Text>
-              <Text style={[styles.metricValue, { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }]}>
-                {indoorMetrics?.humidity_pct !== undefined ? indoorMetrics.humidity_pct : '--'}<Text style={styles.unit}> %</Text>
-              </Text>
+            <View style={styles.zigbeeMetricsRow}>
+              <View style={styles.zigbeeMetric}>
+                <Text style={styles.metricLabel}>TEMP</Text>
+                <Text style={[styles.metricValue, { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }]}>
+                  {indoorMetrics?.temperature_c !== undefined ? indoorMetrics.temperature_c : '--'}
+                  <Text style={styles.unit}> °C</Text>
+                </Text>
+              </View>
+              <View style={styles.zigbeeMetric}>
+                <Text style={styles.metricLabel}>HUM</Text>
+                <Text style={[styles.metricValue, { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }]}>
+                  {indoorMetrics?.humidity_pct !== undefined ? indoorMetrics.humidity_pct : '--'}
+                  <Text style={styles.unit}> %</Text>
+                </Text>
+              </View>
             </View>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>OUTDOOR TEMP</Text>
-              <Text style={[styles.metricValue, { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }]}>
-                {outdoorMetrics?.temperature_c !== undefined ? outdoorMetrics.temperature_c : '--'}<Text style={styles.unit}> °C</Text>
-              </Text>
+          </View>
+
+          {/* Outdoor Sensor Box */}
+          <View style={styles.zigbeeCard}>
+            <View style={styles.indicatorBlock}>
+              <Ionicons name="leaf-outline" size={14} color="#8e9aaf" />
+              <Text style={styles.zigbeeCardTitle}>OUTDOOR</Text>
             </View>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>OUTDOOR HUM</Text>
-              <Text style={[styles.metricValue, { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }]}>
-                {outdoorMetrics?.humidity_pct !== undefined ? outdoorMetrics.humidity_pct : '--'}<Text style={styles.unit}> %</Text>
-              </Text>
+            <View style={styles.zigbeeMetricsRow}>
+              <View style={styles.zigbeeMetric}>
+                <Text style={styles.metricLabel}>TEMP</Text>
+                <Text style={[styles.metricValue, { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }]}>
+                  {outdoorMetrics?.temperature_c !== undefined ? outdoorMetrics.temperature_c : '--'}
+                  <Text style={styles.unit}> °C</Text>
+                </Text>
+              </View>
+              <View style={styles.zigbeeMetric}>
+                <Text style={styles.metricLabel}>HUM</Text>
+                <Text style={[styles.metricValue, { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }]}>
+                  {outdoorMetrics?.humidity_pct !== undefined ? outdoorMetrics.humidity_pct : '--'}
+                  <Text style={styles.unit}> %</Text>
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -440,12 +467,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
   scrollContent: { alignItems: 'center', paddingVertical: 20 },
   title: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 16 },
+  
   sensorCard: {
     width: '90%',
     backgroundColor: '#1a1d21',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 16, // reduced slightly to accommodate the new boxes below
     borderWidth: 1,
     borderColor: '#2d3238',
   },
@@ -472,6 +500,40 @@ const styles = StyleSheet.create({
   metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
   metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
   unit: { fontSize: 8, color: '#6c757d' },
+
+  // --- ZIGBEE STYLES ---
+  zigbeeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '90%',
+    marginBottom: 20,
+  },
+  zigbeeCard: {
+    width: '48%',
+    backgroundColor: '#1a1d21',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#2d3238',
+    alignItems: 'center',
+  },
+  zigbeeCardTitle: {
+    color: '#8e9aaf',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  zigbeeMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 8,
+  },
+  zigbeeMetric: {
+    alignItems: 'center',
+  },
+
+  // --- LCD STYLES ---
   lcdScreen: {
     width: '90%',
     backgroundColor: '#071515',
@@ -492,7 +554,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
-  indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statusBox: {
     flex: 1,
     backgroundColor: '#0b1f1f',
@@ -512,6 +574,8 @@ const styles = StyleSheet.create({
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
   disabledText: { color: '#445555' },
   disabledTextLabel: { color: '#445555', opacity: 1 },
+  
+  // --- BUTTON GRID ---
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: '90%' },
   button: {
     width: '42%',

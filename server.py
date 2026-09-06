@@ -62,16 +62,16 @@ class PhantomState(BaseModel):
 DEFAULT_STATE = PhantomState().model_dump()
 
 AIR_METRICS = {
-    "co2_ppm": 0,
-    "co2_state": "normal",
-    "temperature_c": 0,
-    "humidity_pct": 0,
-    "pm1_ugm3": 0,
-    "pm25_ugm3": 0,
-    "pm10_ugm3": 0,
-    "voc_mgm3": 0.0,
-    "ch2o_mgm3": 0.0,
-    "battery_pct": 100,
+    "co2_ppm": None,
+    "co2_state": None,
+    "temperature_c": None,
+    "humidity_pct": None,
+    "pm1_ugm3": None,
+    "pm25_ugm3": None,
+    "pm10_ugm3": None,
+    "voc_mgm3": None,
+    "ch2o_mgm3": None,
+    "battery_pct": None,
     "online": False
 }
 

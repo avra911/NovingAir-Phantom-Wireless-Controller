@@ -74,89 +74,86 @@ async def poll_air_sensor_task(
             if status and 'dps' in status:
                 dps = status['dps']
                 
-                air_metrics_dict.update({
-                    "co2_state": dps.get("1", "normal"),
-                    "co2_ppm": dps.get("2", 0),
-                    "temperature_c": dps.get("18", 0),
-                    "humidity_pct": dps.get("19", 0),
-                    "pm1_ugm3": dps.get("101", dps.get("23", dps.get("105", 0))),
-                    "pm25_ugm3": dps.get("20", 0),
-                    "pm10_ugm3": dps.get("102", dps.get("24", dps.get("106", 0))),
-                    "voc_mgm3": round(dps.get("21", 0) / 1000.0, 3),
-                    "ch2o_mgm3": round(dps.get("22", 0) / 1000.0, 3),
-                    "battery_pct": dps.get("15", 100),
-                    "online": True
-                })
+                # Update local metrics
+                if "1" in dps: air_metrics_dict["co2_state"] = dps["1"]
+                if "2" in dps: air_metrics_dict["co2_ppm"] = dps["2"]
+                if "18" in dps: air_metrics_dict["temperature_c"] = dps["18"]
+                if "19" in dps: air_metrics_dict["humidity_pct"] = dps["19"]
+                
+                pm1 = dps.get("101") or dps.get("23") or dps.get("105")
+                if pm1 is not None: air_metrics_dict["pm1_ugm3"] = pm1
+                if "20" in dps: air_metrics_dict["pm25_ugm3"] = dps["20"]
+                pm10 = dps.get("102") or dps.get("24") or dps.get("106")
+                if pm10 is not None: air_metrics_dict["pm10_ugm3"] = pm10
+                
+                if "21" in dps: air_metrics_dict["voc_mgm3"] = round(dps["21"] / 1000.0, 3)
+                if "22" in dps: air_metrics_dict["ch2o_mgm3"] = round(dps["22"] / 1000.0, 3)
+                if "15" in dps: air_metrics_dict["battery_pct"] = dps["15"]
+                
+                air_metrics_dict["online"] = True
 
-                co2 = air_metrics_dict["co2_ppm"]
-
-                # If automation override is off via dashboard, reset active tracking and skip handling
+                # ==========================================
+                # CONTINUOUS ADAPTIVE AUTOMATION LOGIC
+                # ==========================================
                 if not state_dict.get("automation_enabled", True):
                     co2_override_active = False
                 else:
-                    # Handle high CO2 threshold override
-                    if co2 > CO2_HIGH_THRESHOLD and not co2_override_active:
-                        logging.info(f"CO2 high threshold reached ({co2} ppm). Evaluating time and thermal conditions.")
+                    co2 = air_metrics_dict.get("co2_ppm")
+                    if co2 is None:
+                        co2 = 400 # Failsafe to prevent crashes if sensor glitch occurs
+                        
+                    # 1. Determine Target Speed (Clean air = 1, Bad air = 2 or 3)
+                    if co2 > CO2_HIGH_THRESHOLD or (co2_override_active and co2 >= CO2_LOW_THRESHOLD):
                         co2_override_active = True
-                        
                         target_speed = _get_target_speed()
-                        indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
-                        outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
+                    else:
+                        co2_override_active = False
+                        target_speed = 1
                         
-                        if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                            logging.info(f"Thermal decision: Activating directional flux (NORTH_SOUTH).")
-                            state_dict["flux"] = "NORTH_SOUTH"
-                            state_dict["mode"] = "NONE"
-                            state_dict["boost"] = False
-                            if "FLUX_NORTH_SOUTH" in button_codes:
-                                ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
-                            await asyncio.sleep(1.5)
-                        else:
-                            logging.info(f"Thermal decision: Switching to MANUAL mode.")
-                            state_dict["mode"] = "MANUAL"
-                            state_dict["flux"] = "NONE"
-                            state_dict["boost"] = False
-                            if "MODE_MANUAL" in button_codes:
-                                ir_device.send_button(button_codes["MODE_MANUAL"])
-                            await asyncio.sleep(1.5)
+                    # 2. Fetch Temps (using executor so Tuya Cloud doesn't block FastAPI)
+                    indoor_temp_raw = await loop.run_in_executor(None, fetch_zigbee_temp, cloud, indoor_device_id)
+                    outdoor_temp = await loop.run_in_executor(None, fetch_zigbee_temp, cloud, outdoor_device_id)
+                    
+                    indoor_temp = indoor_temp_raw if indoor_temp_raw is not None else air_metrics_dict.get("temperature_c", IDEAL_TEMP)
 
+                    # 3. Determine Target Mode/Flux based on Temps
+                    if _should_use_direct_flow(indoor_temp, outdoor_temp):
+                        target_mode = "NONE"
+                        target_flux = "NORTH_SOUTH"
+                    else:
+                        target_mode = "MANUAL"
+                        target_flux = "NONE"
+                        
+                    target_boost = False
+                    state_changed = False
+                    
+                    # 4. Compare Actual State vs Target State and Fire IR Commands
+                    if state_dict.get("mode") != target_mode or state_dict.get("flux") != target_flux:
+                        logging.info(f"Thermal decision changed: Mode -> {target_mode}, Flux -> {target_flux} (In: {indoor_temp}, Out: {outdoor_temp})")
+                        state_dict["mode"] = target_mode
+                        state_dict["flux"] = target_flux
+                        state_dict["boost"] = target_boost
+                        
+                        ir_key = "FLUX_NORTH_SOUTH" if target_flux == "NORTH_SOUTH" else "MODE_MANUAL"
+                        if ir_key in button_codes:
+                            # Using executor so IR blaster networking doesn't block loop
+                            await loop.run_in_executor(None, ir_device.send_button, button_codes[ir_key])
+                        
+                        state_changed = True
+                        await asyncio.sleep(1.5) # Protect IR unit from command spam
+                    
+                    if state_dict.get("speed") != target_speed:
+                        logging.info(f"Speed changed -> {target_speed} (CO2: {co2}, Active: {co2_override_active})")
                         state_dict["speed"] = target_speed
                         speed_key = f"SPEED_{target_speed}"
+                        
                         if speed_key in button_codes:
-                            logging.info(f"Setting ventilation speed to {target_speed}.")
-                            ir_device.send_button(button_codes[speed_key])
+                            await loop.run_in_executor(None, ir_device.send_button, button_codes[speed_key])
                             
-                        save_state_func(state_dict)
-
-                    # Handle normalization recovery
-                    elif co2 < CO2_LOW_THRESHOLD and co2_override_active:
-                        logging.info(f"CO2 normalized ({co2} ppm). Evaluating thermal conditions for recovery state.")
-                        co2_override_active = False
+                        state_changed = True
                         
-                        indoor_temp = fetch_zigbee_temp(cloud, indoor_device_id) or air_metrics_dict.get("temperature_c", IDEAL_TEMP)
-                        outdoor_temp = fetch_zigbee_temp(cloud, outdoor_device_id)
-
-                        if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                            logging.info(f"Thermal recovery decision: Setting flux to NORTH_SOUTH at Speed 1.")
-                            state_dict["flux"] = "NORTH_SOUTH"
-                            state_dict["mode"] = "NONE"
-                            state_dict["boost"] = False
-                            if "FLUX_NORTH_SOUTH" in button_codes:
-                                ir_device.send_button(button_codes["FLUX_NORTH_SOUTH"])
-                            await asyncio.sleep(1.5)
-                        else:
-                            logging.info(f"Thermal recovery decision: Setting MANUAL mode at Speed 1.")
-                            state_dict["mode"] = "MANUAL"
-                            state_dict["flux"] = "NONE"
-                            state_dict["boost"] = False
-                            if "MODE_MANUAL" in button_codes:
-                                ir_device.send_button(button_codes["MODE_MANUAL"])
-                            await asyncio.sleep(1.5)
-                        
-                        state_dict["speed"] = 1
-                        if "SPEED_1" in button_codes:
-                            ir_device.send_button(button_codes["SPEED_1"])
-
+                    # 5. Persist if state shifted
+                    if state_changed:
                         save_state_func(state_dict)
 
         except Exception as e:
