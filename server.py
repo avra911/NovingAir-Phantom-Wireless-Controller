@@ -236,6 +236,10 @@ async def command(action: str):
         new_night = not CURRENT_STATE.get("night", False)
         send_ir_button("MODE_NIGHT")
         CURRENT_STATE["night"] = new_night
+        if new_night:
+            CURRENT_STATE["mode"] = "NONE"
+            CURRENT_STATE["flux"] = "NONE"
+            CURRENT_STATE["boost"] = False
 
     elif action == "BOOST":
         new_boost = not CURRENT_STATE.get("boost", False)
@@ -244,14 +248,13 @@ async def command(action: str):
         if new_boost:
             CURRENT_STATE["mode"] = "NONE"
             CURRENT_STATE["flux"] = "NONE"
+            CURRENT_STATE["night"] = False
 
     elif action == "TOGGLE_AUTO":
         CURRENT_STATE["automation_enabled"] = not CURRENT_STATE.get("automation_enabled", True)
 
     elif action == "RESET":
         send_ir_button("RESET")
-        CURRENT_STATE.clear()
-        CURRENT_STATE.update(DEFAULT_STATE.copy())
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown command: {action}")
