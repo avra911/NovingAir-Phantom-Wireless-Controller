@@ -179,15 +179,14 @@ async def poll_air_sensor_task(
             # 4. Thermal airflow logic
             indoor_temp = air_metrics_dict.get("indoor_temperature_c", IDEAL_TEMP)
             outdoor_temp = air_metrics_dict.get("outdoor_temperature_c")
-            
+
             currently_direct = state_dict.get("flux") == "NORTH_SOUTH"
             direct_flow = _should_use_direct_flow(indoor_temp, outdoor_temp, currently_direct)
 
             target_mode = "NONE" if direct_flow else "MANUAL"
             target_flux = "NORTH_SOUTH" if direct_flow else "NONE"
             target_speed = _get_target_speed(co2_ppm, night)
-            
-            state_dict["boost"] = co2_ppm >= CO2_LOW_THRESHOLD
+
             state_changed = False
 
             # 5. Apply Mode & Flux asynchronously
@@ -204,7 +203,7 @@ async def poll_air_sensor_task(
             # 6. Speed lock with Night Transition Override
             now = _get_now()
             night_transition = (night and not was_night)
-            
+
             can_change_speed = (
                 last_speed_change is None
                 or night_transition  # Bypass lock to drop speed when sleeping
