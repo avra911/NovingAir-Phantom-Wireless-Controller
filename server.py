@@ -1,13 +1,14 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-import uvicorn
+
+import asyncio
 import json
 import os
-import asyncio
+
 import tinytuya
 from tinytuya.Contrib.IRRemoteControlDevice import IRRemoteControlDevice
+
 from config import (
     IR_DEVICE_ID,
     IR_ADDRESS,
@@ -16,6 +17,8 @@ from config import (
     SENSOR_ADDRESS,
     SENSOR_LOCAL_KEY,
 )
+
+from gateway import TuyaGateway
 from tasks import poll_air_sensor_task
 
 app = FastAPI()
@@ -28,28 +31,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- DEVICE CONFIGURATION ---
 STATE_FILE = "state.json"
 BUTTON_CODES_FILE = "phantom_ir.json"
 
-# --- TUYA DEVICE INITIALIZATION ---
+# ---------------------------------------------------------------------
+# Devices
+# ---------------------------------------------------------------------
 ir_device = IRRemoteControlDevice(
     dev_id=IR_DEVICE_ID,
     address=IR_ADDRESS,
     local_key=IR_LOCAL_KEY,
     version=3.3,
-    control_type=1
+    control_type=1,
 )
 
 co2_sensor = tinytuya.Device(
     dev_id=SENSOR_DEVICE_ID,
     address=SENSOR_ADDRESS,
     local_key=SENSOR_LOCAL_KEY,
-    version=3.5
+    version=3.5,
 )
 co2_sensor.set_socketTimeout(3)
 
-# --- MODELS & CACHE ---
+# Integrarea locala Zigbee (inlocuieste Tuya Cloud)
+gateway = TuyaGateway()
+
+# ---------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------
 class PhantomState(BaseModel):
     mode: str = "AUTO"
     speed: int = 3
@@ -62,6 +71,7 @@ class PhantomState(BaseModel):
 DEFAULT_STATE = PhantomState().model_dump()
 
 AIR_METRICS = {
+    # Main air-quality sensor
     "co2_ppm": None,
     "co2_state": None,
     "temperature_c": None,
@@ -72,17 +82,32 @@ AIR_METRICS = {
     "voc_mgm3": None,
     "ch2o_mgm3": None,
     "battery_pct": None,
-    "online": False
+    "online": False,
+
+    # Local Zigbee sensors
+    "indoor_temperature_c": None,
+    "indoor_humidity_pct": None,
+    "indoor_battery": None,
+
+    "outdoor_temperature_c": None,
+    "outdoor_humidity_pct": None,
+    "outdoor_battery": None,
+
+    "zigbee_online": False,
 }
 
+# ---------------------------------------------------------------------
+# State helpers
+# ---------------------------------------------------------------------
 def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
-                if "automation_enabled" not in data:
-                    data["automation_enabled"] = True
-                return data
+            for key, value in DEFAULT_STATE.items():
+                if key not in data:
+                    data[key] = value
+            return data
         except Exception:
             pass
     return DEFAULT_STATE.copy()
@@ -101,8 +126,12 @@ def load_button_codes() -> dict:
 CURRENT_STATE = load_state()
 BUTTON_CODES = load_button_codes()
 
+# ---------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------
 @app.on_event("startup")
 async def startup_event():
+    print("[STARTUP] Starting air sensor automation...")
     asyncio.create_task(
         poll_air_sensor_task(
             co2_sensor=co2_sensor,
@@ -111,131 +140,138 @@ async def startup_event():
             state_dict=CURRENT_STATE,
             air_metrics_dict=AIR_METRICS,
             save_state_func=save_state,
-            cloud=cloud,
-            indoor_device_id=os.getenv("INDOOR_SENSOR_DEVICE_ID"),
-            outdoor_device_id=os.getenv("OUTDOOR_SENSOR_DEVICE_ID")
+            gateway=gateway,
         )
     )
+    print("[STARTUP] Air sensor automation started.")
 
-# --- TUYA CLOUD INIT ---
-cloud = tinytuya.Cloud(
-    apiRegion=os.getenv("TUYA_API_REGION", "eu"),
-    apiKey=os.getenv("TUYA_API_CLIENT_ID"),
-    apiSecret=os.getenv("TUYA_API_SECRET")
-)
-
-def get_zigbee_sensor_data(device_id: str):
+# ---------------------------------------------------------------------
+# IR helper (Metoda originala: send_button)
+# ---------------------------------------------------------------------
+def send_ir_button(button_name: str):
+    code = BUTTON_CODES.get(button_name)
+    if code is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"IR button not found: {button_name}",
+        )
     try:
-        status = cloud.getstatus(device_id)
-        
-        dps = {}
-        if isinstance(status, dict):
-            result = status.get("result", [])
-            if isinstance(result, list):
-                dps = {item.get('code'): item.get('value') for item in result if isinstance(item, dict) and 'code' in item}
-            elif isinstance(result, dict):
-                dps = result
-            elif 'dps' in status:
-                dps = status['dps']
-        elif isinstance(status, list):
-            dps = {item.get('code'): item.get('value') for item in status if isinstance(item, dict) and 'code' in item}
-
-        raw_temp = dps.get("va_temperature") or dps.get("temp_current") or dps.get("temperature")
-        raw_hum = dps.get("va_humidity") or dps.get("humidity") or dps.get("humidity_value")
-        battery = dps.get("battery_percentage") or dps.get("battery_state") or dps.get("battery")
-
-        temp_c = None
-        if raw_temp is not None:
-            temp_c = raw_temp / 10.0 if raw_temp > 60 else float(raw_temp)
-
-        hum_pct = None
-        if raw_hum is not None:
-            hum_pct = raw_hum / 10.0 if raw_hum > 100 else float(raw_hum)
-
-        return {
-            "temperature_c": temp_c,
-            "humidity_pct": hum_pct,
-            "battery": battery
-        }
+        result = ir_device.send_button(code)
+        print(f"[IR SENT] {button_name} | Result: {result}")
+        return result
     except Exception as e:
-        print(f"Error fetching Zigbee sensor {device_id}: {e}")
-        return {"temperature_c": None, "humidity_pct": None, "battery": None}
+        print(f"[IR ERROR] Failed to send {button_name}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"IR command failed: {e}",
+        )
 
-# --- ENDPOINTS ---
+# ---------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------
 @app.get("/state")
-def get_state():
+async def get_state():
     return {
         "phantom": CURRENT_STATE,
         "sensor": AIR_METRICS,
-        "indoor": get_zigbee_sensor_data(os.getenv("INDOOR_SENSOR_DEVICE_ID")),
-        "outdoor": get_zigbee_sensor_data(os.getenv("OUTDOOR_SENSOR_DEVICE_ID"))
+        "indoor": {
+            "temperature_c": AIR_METRICS.get("indoor_temperature_c"),
+            "humidity_pct": AIR_METRICS.get("indoor_humidity_pct"),
+            "battery": AIR_METRICS.get("indoor_battery"),
+        },
+        "outdoor": {
+            "temperature_c": AIR_METRICS.get("outdoor_temperature_c"),
+            "humidity_pct": AIR_METRICS.get("outdoor_humidity_pct"),
+            "battery": AIR_METRICS.get("outdoor_battery"),
+        },
     }
 
-@app.post("/command/{action}")
-def handle_command(action: str, payload: Optional[dict] = Body(None)):
-    global CURRENT_STATE
-    btn_key = action.upper()
-    target_ir_key = None
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "NovingAIR local hub",
+    }
 
-    if btn_key == "SPEED":
-        CURRENT_STATE["speed"] = 1 if CURRENT_STATE["speed"] >= 3 else CURRENT_STATE["speed"] + 1
-        target_ir_key = f"SPEED_{CURRENT_STATE['speed']}"
-        
-    elif btn_key == "HUMIDITY":
-        CURRENT_STATE["humidity"] = 1 if CURRENT_STATE["humidity"] >= 3 else CURRENT_STATE["humidity"] + 1
-        target_ir_key = f"HUMIDITY_{CURRENT_STATE['humidity']}"
-        
-    elif btn_key == "MODE":
+# ---------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------
+@app.post("/command/{action}")
+async def command(action: str):
+    action = action.upper()
+
+    if action == "SPEED":
+        current_speed = CURRENT_STATE.get("speed", 3)
+        new_speed = 1 if current_speed >= 3 else current_speed + 1
+        send_ir_button(f"SPEED_{new_speed}")
+        CURRENT_STATE["speed"] = new_speed
+
+    elif action == "HUMIDITY":
+        current_humidity = CURRENT_STATE.get("humidity", 3)
+        new_humidity = 1 if current_humidity >= 3 else current_humidity + 1
+        send_ir_button(f"HUMIDITY_{new_humidity}")
+        CURRENT_STATE["humidity"] = new_humidity
+
+    elif action == "MODE":
         modes = ["AUTO", "SLEEP", "MANUAL"]
-        idx = modes.index(CURRENT_STATE["mode"]) if CURRENT_STATE["mode"] in modes else -1
-        CURRENT_STATE["mode"] = modes[(idx + 1) % len(modes)]
+        current_mode = CURRENT_STATE.get("mode", "AUTO")
+        idx = modes.index(current_mode) if current_mode in modes else -1
+        new_mode = modes[(idx + 1) % len(modes)]
+        send_ir_button(f"MODE_{new_mode}")
+        CURRENT_STATE["mode"] = new_mode
         CURRENT_STATE["flux"] = "NONE"
         CURRENT_STATE["boost"] = False
-        target_ir_key = f"MODE_{CURRENT_STATE['mode']}"
-        
-    elif btn_key == "FLUX":
+
+    elif action == "FLUX":
         fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
-        idx = fluxes.index(CURRENT_STATE["flux"]) if CURRENT_STATE["flux"] in fluxes else -1
-        CURRENT_STATE["flux"] = fluxes[(idx + 1) % len(fluxes)]
+        current_flux = CURRENT_STATE.get("flux", "SOUTH_NORTH")
+        idx = fluxes.index(current_flux) if current_flux in fluxes else -1
+        new_flux = fluxes[(idx + 1) % len(fluxes)]
+        send_ir_button(f"FLUX_{new_flux}")
+        CURRENT_STATE["flux"] = new_flux
         CURRENT_STATE["mode"] = "NONE"
         CURRENT_STATE["boost"] = False
-        target_ir_key = f"FLUX_{CURRENT_STATE['flux']}"
-        
-    elif btn_key == "NIGHT":
-        CURRENT_STATE["night"] = not CURRENT_STATE["night"]
-        target_ir_key = "MODE_NIGHT"
-        
-    elif btn_key == "BOOST":
-        CURRENT_STATE["boost"] = not CURRENT_STATE["boost"]
-        if CURRENT_STATE["boost"]:
+
+    elif action == "NIGHT":
+        new_night = not CURRENT_STATE.get("night", False)
+        send_ir_button("MODE_NIGHT")
+        CURRENT_STATE["night"] = new_night
+
+    elif action == "BOOST":
+        new_boost = not CURRENT_STATE.get("boost", False)
+        send_ir_button("BOOST")
+        CURRENT_STATE["boost"] = new_boost
+        if new_boost:
             CURRENT_STATE["mode"] = "NONE"
             CURRENT_STATE["flux"] = "NONE"
-        target_ir_key = "BOOST"
-        
-    elif btn_key == "TOGGLE_AUTO":
-        CURRENT_STATE["automation_enabled"] = not CURRENT_STATE.get("automation_enabled", True)
-        # No IR target to send; this is internal state control only
-        
-    elif btn_key == "RESET":
-        target_ir_key = "RESET"
 
-    if target_ir_key and target_ir_key in BUTTON_CODES:
-        code = BUTTON_CODES[target_ir_key]
-        try:
-            result = ir_device.send_button(code)
-            print(f"[IR SENT] Target State: {target_ir_key} | Result: {result}")
-        except Exception as e:
-            print(f"[IR ERROR] Failed to send {target_ir_key}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-    elif target_ir_key:
-        print(f"[WARNING] Key '{target_ir_key}' not mapped in {BUTTON_CODES_FILE}")
+    elif action == "TOGGLE_AUTO":
+        CURRENT_STATE["automation_enabled"] = not CURRENT_STATE.get("automation_enabled", True)
+
+    elif action == "RESET":
+        send_ir_button("RESET")
+        CURRENT_STATE.clear()
+        CURRENT_STATE.update(DEFAULT_STATE.copy())
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown command: {action}")
 
     save_state(CURRENT_STATE)
-    
     return {
         "phantom": CURRENT_STATE,
-        "sensor": AIR_METRICS
+        "sensor": AIR_METRICS,
+        "indoor": {
+            "temperature_c": AIR_METRICS.get("indoor_temperature_c"),
+            "humidity_pct": AIR_METRICS.get("indoor_humidity_pct"),
+            "battery": AIR_METRICS.get("indoor_battery"),
+        },
+        "outdoor": {
+            "temperature_c": AIR_METRICS.get("outdoor_temperature_c"),
+            "humidity_pct": AIR_METRICS.get("outdoor_humidity_pct"),
+            "battery": AIR_METRICS.get("outdoor_battery"),
+        },
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)

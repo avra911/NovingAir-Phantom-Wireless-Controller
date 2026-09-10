@@ -1,163 +1,244 @@
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# --- CONFIGURATION CONSTANTS ---
+import tinytuya
+from tinytuya.Contrib.IRRemoteControlDevice import IRRemoteControlDevice
+from gateway import TuyaGateway
+
 CO2_HIGH_THRESHOLD = 1200
 CO2_LOW_THRESHOLD = 800
 IDEAL_TEMP = 22.0
 NIGHT_START_HOUR = 21
 NIGHT_END_HOUR = 8
+SPEED_CHANGE_LOCK_MINUTES = 30
+POLL_INTERVAL_SECONDS = 60
 
-# Configure file logging
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     filename="logs/automation.log",
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-def fetch_zigbee_temp(cloud, device_id: str) -> float | None:
-    try:
-        status = cloud.getstatus(device_id)
-        dps = {}
-        if isinstance(status, dict):
-            result = status.get("result", [])
-            if isinstance(result, list):
-                dps = {item.get('code'): item.get('value') for item in result if isinstance(item, dict) and 'code' in item}
-            elif isinstance(result, dict):
-                dps = result
-            elif 'dps' in status:
-                dps = status['dps']
-        elif isinstance(status, list):
-            dps = {item.get('code'): item.get('value') for item in status if isinstance(item, dict) and 'code' in item}
+def _get_now():
+    return datetime.now(ZoneInfo("Europe/Bucharest"))
 
-        raw_temp = dps.get("va_temperature") or dps.get("temp_current") or dps.get("temperature")
-        if raw_temp is not None:
-            return raw_temp / 10.0 if raw_temp > 60 else float(raw_temp)
-    except Exception as e:
-        logging.error(f"ZIGBEE FETCH ERROR [{device_id}]: {e}")
-    return None
+def _is_night() -> bool:
+    hour = _get_now().hour
+    return hour >= NIGHT_START_HOUR or hour < NIGHT_END_HOUR
 
-def _get_target_speed() -> int:
-    current_hour = datetime.now(ZoneInfo("Europe/Bucharest")).hour
-    is_night = current_hour >= NIGHT_START_HOUR or current_hour < NIGHT_END_HOUR
-    return 2 if is_night else 3
+def _get_target_speed(co2_ppm: float, night: bool) -> int:
+    if co2_ppm > CO2_HIGH_THRESHOLD:
+        return 2 if night else 3
+    if co2_ppm > CO2_LOW_THRESHOLD:
+        return 1 if night else 2
+    return 1
 
 def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None) -> bool:
     if outdoor_temp is None:
         return False
-    return abs(outdoor_temp - IDEAL_TEMP) < abs(indoor_temp - IDEAL_TEMP)
+    indoor_distance = abs(indoor_temp - IDEAL_TEMP)
+    outdoor_distance = abs(outdoor_temp - IDEAL_TEMP)
+    return outdoor_distance < indoor_distance
+
+def fetch_co2_sensor_data(sensor):
+    result = sensor.status()
+    if not result or "dps" not in result:
+        raise RuntimeError(f"Failed to read CO2 sensor: {result}")
+    dps = result["dps"]
+    return {
+        "co2_state": dps.get("1"),
+        "co2_ppm": dps.get("2"),
+        "temperature_c": dps["18"] / 10 if dps.get("18") is not None else None,
+        "humidity_pct": dps["19"] if dps.get("19") is not None else None,
+        "pm1_ugm3": _get_pm_value(dps, ("101", "23", "105")),
+        "pm25_ugm3": dps["20"] if dps.get("20") is not None else None,
+        "pm10_ugm3": _get_pm_value(dps, ("102", "24", "106")),
+        "voc_mgm3": dps["21"] / 1000 if dps.get("21") is not None else None,
+        "ch2o_mgm3": dps["22"] / 1000 if dps.get("22") is not None else None,
+        "battery_pct": dps.get("15"),
+    }
+
+def _get_pm_value(dps: dict, keys: tuple[str, ...]):
+    for key in keys:
+        value = dps.get(key)
+        if value is not None:
+            return value
+    return None
+
+def _apply_last_known_good(target: dict, source: dict):
+    for key, value in source.items():
+        if value is not None:
+            target[key] = value
+
+# Metoda originala: send_button
+def _send_ir(ir_device, button_codes: dict, button_name: str):
+    code = button_codes.get(button_name)
+    if code is None:
+        logging.warning(f"IR code not found for button: {button_name}")
+        return False
+    try:
+        result = ir_device.send_button(code)
+        logging.info(f"IR command {button_name}: {result}")
+        return True
+    except Exception as e:
+        logging.error(f"IR command failed for {button_name}: {e}")
+        return False
+
+def _set_speed(speed: int, ir_device, button_codes: dict):
+    return _send_ir(ir_device, button_codes, f"SPEED_{speed}")
+
+def _set_mode(mode: str, ir_device, button_codes: dict):
+    if mode == "NONE":
+        return True
+    return _send_ir(ir_device, button_codes, f"MODE_{mode}")
+
+def _set_flux(flux: str, ir_device, button_codes: dict):
+    if flux == "NONE":
+        return True
+    return _send_ir(ir_device, button_codes, f"FLUX_{flux}")
+
 
 async def poll_air_sensor_task(
-    co2_sensor, 
-    ir_device, 
-    button_codes: dict, 
-    state_dict: dict, 
-    air_metrics_dict: dict, 
+    co2_sensor,
+    ir_device,
+    button_codes,
+    state_dict,
+    air_metrics_dict,
     save_state_func,
-    cloud,
-    indoor_device_id: str,
-    outdoor_device_id: str
+    gateway: TuyaGateway,
 ):
-    logging.info("Air sensor automation task started successfully.")
-    co2_override_active = False
-    
+    print("[STARTUP] Starting air sensor automation...")
+    logging.info("Air sensor automation started.")
+
+    loop = asyncio.get_running_loop()
+    last_speed_change = None
+
     while True:
         try:
-            loop = asyncio.get_event_loop()
-            status = await loop.run_in_executor(None, co2_sensor.status)
-            
-            if status and 'dps' in status:
-                dps = status['dps']
-                
-                # Update local metrics
-                if "1" in dps: air_metrics_dict["co2_state"] = dps["1"]
-                if "2" in dps: air_metrics_dict["co2_ppm"] = dps["2"]
-                if "18" in dps: air_metrics_dict["temperature_c"] = dps["18"]
-                if "19" in dps: air_metrics_dict["humidity_pct"] = dps["19"]
-                
-                pm1 = dps.get("101") or dps.get("23") or dps.get("105")
-                if pm1 is not None: air_metrics_dict["pm1_ugm3"] = pm1
-                if "20" in dps: air_metrics_dict["pm25_ugm3"] = dps["20"]
-                pm10 = dps.get("102") or dps.get("24") or dps.get("106")
-                if pm10 is not None: air_metrics_dict["pm10_ugm3"] = pm10
-                
-                if "21" in dps: air_metrics_dict["voc_mgm3"] = round(dps["21"] / 1000.0, 3)
-                if "22" in dps: air_metrics_dict["ch2o_mgm3"] = round(dps["22"] / 1000.0, 3)
-                if "15" in dps: air_metrics_dict["battery_pct"] = dps["15"]
-                
+            # 1. Read main air-quality sensor
+            try:
+                co2_data = await loop.run_in_executor(None, fetch_co2_sensor_data, co2_sensor)
+                _apply_last_known_good(air_metrics_dict, co2_data)
                 air_metrics_dict["online"] = True
+            except Exception as e:
+                logging.error(f"CO2 SENSOR FETCH ERROR: {e}")
+                air_metrics_dict["online"] = False
 
-                # ==========================================
-                # CONTINUOUS ADAPTIVE AUTOMATION LOGIC
-                # ==========================================
-                if not state_dict.get("automation_enabled", True):
-                    co2_override_active = False
-                else:
-                    co2 = air_metrics_dict.get("co2_ppm")
-                    if co2 is None:
-                        co2 = 400 # Failsafe to prevent crashes if sensor glitch occurs
-                        
-                    # 1. Determine Target Speed (Clean air = 1, Bad air = 2 or 3)
-                    if co2 > CO2_HIGH_THRESHOLD or (co2_override_active and co2 >= CO2_LOW_THRESHOLD):
-                        co2_override_active = True
-                        target_speed = _get_target_speed()
-                    else:
-                        co2_override_active = False
-                        target_speed = 1
-                        
-                    # 2. Fetch Temps (using executor so Tuya Cloud doesn't block FastAPI)
-                    indoor_temp_raw = await loop.run_in_executor(None, fetch_zigbee_temp, cloud, indoor_device_id)
-                    outdoor_temp = await loop.run_in_executor(None, fetch_zigbee_temp, cloud, outdoor_device_id)
-                    
-                    indoor_temp = indoor_temp_raw if indoor_temp_raw is not None else air_metrics_dict.get("temperature_c", IDEAL_TEMP)
+            # 2. Read local Zigbee sensors through Gateway
+            try:
+                indoor_data = await loop.run_in_executor(None, gateway.get_indoor)
+                outdoor_data = await loop.run_in_executor(None, gateway.get_outdoor)
 
-                    # 3. Determine Target Mode/Flux based on Temps
-                    if _should_use_direct_flow(indoor_temp, outdoor_temp):
-                        target_mode = "NONE"
-                        target_flux = "NORTH_SOUTH"
-                    else:
-                        target_mode = "MANUAL"
-                        target_flux = "NONE"
-                        
-                    target_boost = False
-                    state_changed = False
-                    
-                    # 4. Compare Actual State vs Target State and Fire IR Commands
-                    if state_dict.get("mode") != target_mode or state_dict.get("flux") != target_flux:
-                        logging.info(f"Thermal decision changed: Mode -> {target_mode}, Flux -> {target_flux} (In: {indoor_temp}, Out: {outdoor_temp})")
-                        state_dict["mode"] = target_mode
-                        state_dict["flux"] = target_flux
-                        state_dict["boost"] = target_boost
-                        
-                        ir_key = "FLUX_NORTH_SOUTH" if target_flux == "NORTH_SOUTH" else "MODE_MANUAL"
-                        if ir_key in button_codes:
-                            # Using executor so IR blaster networking doesn't block loop
-                            await loop.run_in_executor(None, ir_device.send_button, button_codes[ir_key])
-                        
-                        state_changed = True
-                        await asyncio.sleep(1.5) # Protect IR unit from command spam
-                    
-                    if state_dict.get("speed") != target_speed:
-                        logging.info(f"Speed changed -> {target_speed} (CO2: {co2}, Active: {co2_override_active})")
-                        state_dict["speed"] = target_speed
-                        speed_key = f"SPEED_{target_speed}"
-                        
-                        if speed_key in button_codes:
-                            await loop.run_in_executor(None, ir_device.send_button, button_codes[speed_key])
-                            
-                        state_changed = True
-                        
-                    # 5. Persist if state shifted
-                    if state_changed:
-                        save_state_func(state_dict)
+                if indoor_data.temperature is not None:
+                    air_metrics_dict["indoor_temperature_c"] = indoor_data.temperature
+                if indoor_data.humidity is not None:
+                    air_metrics_dict["indoor_humidity_pct"] = indoor_data.humidity
+                if indoor_data.battery is not None:
+                    air_metrics_dict["indoor_battery"] = indoor_data.battery
 
+                if outdoor_data.temperature is not None:
+                    air_metrics_dict["outdoor_temperature_c"] = outdoor_data.temperature
+                if outdoor_data.humidity is not None:
+                    air_metrics_dict["outdoor_humidity_pct"] = outdoor_data.humidity
+                if outdoor_data.battery is not None:
+                    air_metrics_dict["outdoor_battery"] = outdoor_data.battery
+
+                air_metrics_dict["zigbee_online"] = True
+
+                logging.info(
+                    "Zigbee sensors: "
+                    f"indoor={indoor_data.temperature}°C/{indoor_data.humidity}%/{indoor_data.battery}, "
+                    f"outdoor={outdoor_data.temperature}°C/{outdoor_data.humidity}%/{outdoor_data.battery}"
+                )
+            except Exception as e:
+                logging.error(f"LOCAL ZIGBEE FETCH ERROR: {e}")
+                air_metrics_dict["zigbee_online"] = False
+
+            # 3. Automation decision
+            if not state_dict.get("automation_enabled", True):
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
+
+            co2_ppm = air_metrics_dict.get("co2_ppm")
+            if co2_ppm is None:
+                co2_ppm = 400
+
+            try:
+                co2_ppm = float(co2_ppm)
+            except (TypeError, ValueError):
+                logging.warning(f"Invalid CO2 value: {co2_ppm}")
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
+
+            night = _is_night()
+            state_dict["night"] = night
+
+            # 4. CO2 automation
+            if co2_ppm >= CO2_LOW_THRESHOLD:
+                state_dict["boost"] = True
+            else:
+                state_dict["boost"] = False
+
+            target_speed = _get_target_speed(co2_ppm, night)
+
+            # 5. Thermal airflow logic
+            indoor_temp = air_metrics_dict.get("indoor_temperature_c")
+            outdoor_temp = air_metrics_dict.get("outdoor_temperature_c")
+
+            if indoor_temp is None:
+                indoor_temp = IDEAL_TEMP
+
+            direct_flow = _should_use_direct_flow(indoor_temp, outdoor_temp)
+
+            if direct_flow:
+                target_mode = "NONE"
+                target_flux = "NORTH_SOUTH"
+            else:
+                target_mode = "MANUAL"
+                target_flux = "NONE"
+
+            state_changed = False
+
+            # 6. Mode / flux
+            if state_dict.get("mode") != target_mode:
+                if _set_mode(target_mode, ir_device, button_codes):
+                    state_dict["mode"] = target_mode
+                    state_changed = True
+
+            if state_dict.get("flux") != target_flux:
+                if _set_flux(target_flux, ir_device, button_codes):
+                    state_dict["flux"] = target_flux
+                    state_changed = True
+
+            # 7. Speed lock
+            now = _get_now()
+            can_change_speed = (
+                last_speed_change is None
+                or now - last_speed_change >= timedelta(minutes=SPEED_CHANGE_LOCK_MINUTES)
+            )
+
+            if can_change_speed and state_dict.get("speed") != target_speed:
+                if _set_speed(target_speed, ir_device, button_codes):
+                    state_dict["speed"] = target_speed
+                    last_speed_change = now
+                    state_changed = True
+
+            # 8. Persist
+            if state_changed:
+                save_state_func(state_dict)
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+        except asyncio.CancelledError:
+            logging.info("Air sensor automation task cancelled.")
+            raise
+        except InterruptedError:
+            raise
         except Exception as e:
-            logging.error(f"SENSOR POLLING ERROR: {e}")
-            air_metrics_dict["online"] = False
-
-        await asyncio.sleep(10)
+            logging.exception(f"Unexpected automation error: {e}")
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
