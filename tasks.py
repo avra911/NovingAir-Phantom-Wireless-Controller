@@ -174,7 +174,6 @@ async def poll_air_sensor_task(
 
             co2_ppm = air_metrics_dict.get("co2_ppm", 400.0)
             night = _is_night()
-            state_dict["night"] = night
 
             # 4. Thermal airflow logic
             indoor_temp = air_metrics_dict.get("indoor_temperature_c", IDEAL_TEMP)
