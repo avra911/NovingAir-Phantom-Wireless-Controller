@@ -63,7 +63,7 @@ class PhantomState(BaseModel):
     mode: str = "AUTO"
     speed: int = 3
     humidity: int = 3
-    flux: str = "SOUTH_NORTH"
+    flux: str = "NONE"
     night: bool = False
     boost: bool = False
     automation_enabled: bool = True

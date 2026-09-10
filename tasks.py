@@ -46,11 +46,12 @@ def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None, curr
     indoor_distance = abs(indoor_temp - IDEAL_TEMP)
     outdoor_distance = abs(outdoor_temp - IDEAL_TEMP)
     
-    # Hysteresis to prevent constant toggling when temperatures hover around the threshold
+    # If already running direct flow, apply hysteresis before turning OFF
     if current_flow:
         return outdoor_distance <= (indoor_distance + TEMP_HYSTERESIS_C)
-    else:
-        return outdoor_distance < (indoor_distance - TEMP_HYSTERESIS_C)
+    
+    # Simple check for turning ON direct flow
+    return outdoor_distance < indoor_distance
 
 def _safe_float(val, divisor=1.0):
     if val is None:
