@@ -53,7 +53,7 @@ def fetch_co2_sensor_data(sensor):
     return {
         "co2_state": dps.get("1"),
         "co2_ppm": dps.get("2"),
-        "temperature_c": dps["18"] / 10 if dps.get("18") is not None else None,
+        "temperature_c": dps["18"] if dps.get("18") is not None else None,
         "humidity_pct": dps["19"] if dps.get("19") is not None else None,
         "pm1_ugm3": _get_pm_value(dps, ("101", "23", "105")),
         "pm25_ugm3": dps["20"] if dps.get("20") is not None else None,
