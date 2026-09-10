@@ -15,6 +15,7 @@ NIGHT_START_HOUR = 21
 NIGHT_END_HOUR = 8
 SPEED_CHANGE_LOCK_MINUTES = 30
 POLL_INTERVAL_SECONDS = 60
+TEMP_HYSTERESIS_C = 0.5  # Prevents rapid toggling
 
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
@@ -38,36 +39,50 @@ def _get_target_speed(co2_ppm: float, night: bool) -> int:
         return 1 if night else 2
     return 1
 
-def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None) -> bool:
+def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None, current_flow: bool) -> bool:
     if outdoor_temp is None:
         return False
+    
     indoor_distance = abs(indoor_temp - IDEAL_TEMP)
     outdoor_distance = abs(outdoor_temp - IDEAL_TEMP)
-    return outdoor_distance < indoor_distance
+    
+    # Hysteresis to prevent constant toggling when temperatures hover around the threshold
+    if current_flow:
+        return outdoor_distance <= (indoor_distance + TEMP_HYSTERESIS_C)
+    else:
+        return outdoor_distance < (indoor_distance - TEMP_HYSTERESIS_C)
+
+def _safe_float(val, divisor=1.0):
+    if val is None:
+        return None
+    try:
+        return float(val) / divisor
+    except (ValueError, TypeError):
+        return None
 
 def fetch_co2_sensor_data(sensor):
     result = sensor.status()
     if not result or "dps" not in result:
         raise RuntimeError(f"Failed to read CO2 sensor: {result}")
+    
     dps = result["dps"]
     return {
         "co2_state": dps.get("1"),
-        "co2_ppm": dps.get("2"),
-        "temperature_c": dps["18"] if dps.get("18") is not None else None,
-        "humidity_pct": dps["19"] if dps.get("19") is not None else None,
-        "pm1_ugm3": _get_pm_value(dps, ("101", "23", "105")),
-        "pm25_ugm3": dps["20"] if dps.get("20") is not None else None,
-        "pm10_ugm3": _get_pm_value(dps, ("102", "24", "106")),
-        "voc_mgm3": dps["21"] / 1000 if dps.get("21") is not None else None,
-        "ch2o_mgm3": dps["22"] / 1000 if dps.get("22") is not None else None,
-        "battery_pct": dps.get("15"),
+        "co2_ppm": _safe_float(dps.get("2")),
+        "temperature_c": _safe_float(dps.get("18")), # Assumes 8-in-1 provides correct value directly
+        "humidity_pct": _safe_float(dps.get("19")),
+        "pm1_ugm3": _safe_float(_get_pm_value(dps, ("101", "23", "105"))),
+        "pm25_ugm3": _safe_float(dps.get("20")),
+        "pm10_ugm3": _safe_float(_get_pm_value(dps, ("102", "24", "106"))),
+        "voc_mgm3": _safe_float(dps.get("21"), 1000.0),
+        "ch2o_mgm3": _safe_float(dps.get("22"), 1000.0),
+        "battery_pct": _safe_float(dps.get("15")),
     }
 
 def _get_pm_value(dps: dict, keys: tuple[str, ...]):
     for key in keys:
-        value = dps.get(key)
-        if value is not None:
-            return value
+        if dps.get(key) is not None:
+            return dps[key]
     return None
 
 def _apply_last_known_good(target: dict, source: dict):
@@ -75,11 +90,11 @@ def _apply_last_known_good(target: dict, source: dict):
         if value is not None:
             target[key] = value
 
-# Metoda originala: send_button
+# IR commands must run synchronously but be awaited via executor
 def _send_ir(ir_device, button_codes: dict, button_name: str):
     code = button_codes.get(button_name)
     if code is None:
-        logging.warning(f"IR code not found for button: {button_name}")
+        logging.warning(f"IR code not found: {button_name}")
         return False
     try:
         result = ir_device.send_button(code)
@@ -89,18 +104,21 @@ def _send_ir(ir_device, button_codes: dict, button_name: str):
         logging.error(f"IR command failed for {button_name}: {e}")
         return False
 
-def _set_speed(speed: int, ir_device, button_codes: dict):
-    return _send_ir(ir_device, button_codes, f"SPEED_{speed}")
+async def _async_send_ir(loop, ir_device, button_codes: dict, button_name: str):
+    return await loop.run_in_executor(None, _send_ir, ir_device, button_codes, button_name)
 
-def _set_mode(mode: str, ir_device, button_codes: dict):
+async def _set_speed(loop, speed: int, ir_device, button_codes: dict):
+    return await _async_send_ir(loop, ir_device, button_codes, f"SPEED_{speed}")
+
+async def _set_mode(loop, mode: str, ir_device, button_codes: dict):
     if mode == "NONE":
         return True
-    return _send_ir(ir_device, button_codes, f"MODE_{mode}")
+    return await _async_send_ir(loop, ir_device, button_codes, f"MODE_{mode}")
 
-def _set_flux(flux: str, ir_device, button_codes: dict):
+async def _set_flux(loop, flux: str, ir_device, button_codes: dict):
     if flux == "NONE":
         return True
-    return _send_ir(ir_device, button_codes, f"FLUX_{flux}")
+    return await _async_send_ir(loop, ir_device, button_codes, f"FLUX_{flux}")
 
 
 async def poll_air_sensor_task(
@@ -117,6 +135,7 @@ async def poll_air_sensor_task(
 
     loop = asyncio.get_running_loop()
     last_speed_change = None
+    was_night = _is_night()
 
     while True:
         try:
@@ -129,32 +148,20 @@ async def poll_air_sensor_task(
                 logging.error(f"CO2 SENSOR FETCH ERROR: {e}")
                 air_metrics_dict["online"] = False
 
-            # 2. Read local Zigbee sensors through Gateway
+            # 2. Read local Zigbee sensors
             try:
                 indoor_data = await loop.run_in_executor(None, gateway.get_indoor)
                 outdoor_data = await loop.run_in_executor(None, gateway.get_outdoor)
 
-                if indoor_data.temperature is not None:
-                    air_metrics_dict["indoor_temperature_c"] = indoor_data.temperature
-                if indoor_data.humidity is not None:
-                    air_metrics_dict["indoor_humidity_pct"] = indoor_data.humidity
-                if indoor_data.battery is not None:
-                    air_metrics_dict["indoor_battery"] = indoor_data.battery
-
-                if outdoor_data.temperature is not None:
-                    air_metrics_dict["outdoor_temperature_c"] = outdoor_data.temperature
-                if outdoor_data.humidity is not None:
-                    air_metrics_dict["outdoor_humidity_pct"] = outdoor_data.humidity
-                if outdoor_data.battery is not None:
-                    air_metrics_dict["outdoor_battery"] = outdoor_data.battery
-
+                _apply_last_known_good(air_metrics_dict, {
+                    "indoor_temperature_c": indoor_data.temperature,
+                    "indoor_humidity_pct": indoor_data.humidity,
+                    "indoor_battery": indoor_data.battery,
+                    "outdoor_temperature_c": getattr(outdoor_data, 'temperature', None),
+                    "outdoor_humidity_pct": getattr(outdoor_data, 'humidity', None),
+                    "outdoor_battery": getattr(outdoor_data, 'battery', None)
+                })
                 air_metrics_dict["zigbee_online"] = True
-
-                logging.info(
-                    "Zigbee sensors: "
-                    f"indoor={indoor_data.temperature}°C/{indoor_data.humidity}%/{indoor_data.battery}, "
-                    f"outdoor={outdoor_data.temperature}°C/{outdoor_data.humidity}%/{outdoor_data.battery}"
-                )
             except Exception as e:
                 logging.error(f"LOCAL ZIGBEE FETCH ERROR: {e}")
                 air_metrics_dict["zigbee_online"] = False
@@ -164,80 +171,60 @@ async def poll_air_sensor_task(
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
-            co2_ppm = air_metrics_dict.get("co2_ppm")
-            if co2_ppm is None:
-                co2_ppm = 400
-
-            try:
-                co2_ppm = float(co2_ppm)
-            except (TypeError, ValueError):
-                logging.warning(f"Invalid CO2 value: {co2_ppm}")
-                await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                continue
-
+            co2_ppm = air_metrics_dict.get("co2_ppm", 400.0)
             night = _is_night()
             state_dict["night"] = night
 
-            # 4. CO2 automation
-            if co2_ppm >= CO2_LOW_THRESHOLD:
-                state_dict["boost"] = True
-            else:
-                state_dict["boost"] = False
-
-            target_speed = _get_target_speed(co2_ppm, night)
-
-            # 5. Thermal airflow logic
-            indoor_temp = air_metrics_dict.get("indoor_temperature_c")
+            # 4. Thermal airflow logic
+            indoor_temp = air_metrics_dict.get("indoor_temperature_c", IDEAL_TEMP)
             outdoor_temp = air_metrics_dict.get("outdoor_temperature_c")
+            
+            currently_direct = state_dict.get("flux") == "NORTH_SOUTH"
+            direct_flow = _should_use_direct_flow(indoor_temp, outdoor_temp, currently_direct)
 
-            if indoor_temp is None:
-                indoor_temp = IDEAL_TEMP
-
-            direct_flow = _should_use_direct_flow(indoor_temp, outdoor_temp)
-
-            if direct_flow:
-                target_mode = "NONE"
-                target_flux = "NORTH_SOUTH"
-            else:
-                target_mode = "MANUAL"
-                target_flux = "NONE"
-
+            target_mode = "NONE" if direct_flow else "MANUAL"
+            target_flux = "NORTH_SOUTH" if direct_flow else "NONE"
+            target_speed = _get_target_speed(co2_ppm, night)
+            
+            state_dict["boost"] = co2_ppm >= CO2_LOW_THRESHOLD
             state_changed = False
 
-            # 6. Mode / flux
+            # 5. Apply Mode & Flux asynchronously
             if state_dict.get("mode") != target_mode:
-                if _set_mode(target_mode, ir_device, button_codes):
+                if await _set_mode(loop, target_mode, ir_device, button_codes):
                     state_dict["mode"] = target_mode
                     state_changed = True
 
             if state_dict.get("flux") != target_flux:
-                if _set_flux(target_flux, ir_device, button_codes):
+                if await _set_flux(loop, target_flux, ir_device, button_codes):
                     state_dict["flux"] = target_flux
                     state_changed = True
 
-            # 7. Speed lock
+            # 6. Speed lock with Night Transition Override
             now = _get_now()
+            night_transition = (night and not was_night)
+            
             can_change_speed = (
                 last_speed_change is None
-                or now - last_speed_change >= timedelta(minutes=SPEED_CHANGE_LOCK_MINUTES)
+                or night_transition  # Bypass lock to drop speed when sleeping
+                or (now - last_speed_change) >= timedelta(minutes=SPEED_CHANGE_LOCK_MINUTES)
             )
 
             if can_change_speed and state_dict.get("speed") != target_speed:
-                if _set_speed(target_speed, ir_device, button_codes):
+                if await _set_speed(loop, target_speed, ir_device, button_codes):
                     state_dict["speed"] = target_speed
                     last_speed_change = now
                     state_changed = True
 
-            # 8. Persist
+            # 7. Persist & cleanup
+            was_night = night
             if state_changed:
                 save_state_func(state_dict)
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         except asyncio.CancelledError:
-            logging.info("Air sensor automation task cancelled.")
-            raise
-        except InterruptedError:
+            logging.info("Automation task cancelled.")
             raise
         except Exception as e:
             logging.exception(f"Unexpected automation error: {e}")

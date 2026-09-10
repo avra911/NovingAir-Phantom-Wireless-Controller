@@ -158,6 +158,39 @@ export default function Index() {
     }
   };
 
+  const formatBatteryValue = (battery?: string | number) => {
+    if (battery === undefined || battery === null) return '--';
+    if (typeof battery === 'number') return `${battery}%`;
+    return String(battery).toUpperCase();
+  };
+
+  const getBatteryIcon = (battery?: string | number) => {
+    if (typeof battery === 'number') {
+      if (battery > 60) return "battery-high";
+      if (battery > 20) return "battery-medium";
+      return "battery-low";
+    }
+    if (typeof battery === 'string') {
+      const lower = battery.toLowerCase();
+      if (lower === 'high') return "battery-high";
+      if (lower === 'medium') return "battery-medium";
+      if (lower === 'low') return "battery-low";
+    }
+    return "battery-unknown";
+  };
+
+  const getBatteryColor = (battery?: string | number) => {
+    if (battery === undefined || battery === null) return "#6c757d";
+    if (typeof battery === 'number') {
+      if (battery > 20) return "#00ffcc";
+      return "#e74c3c";
+    }
+    if (typeof battery === 'string') {
+      return battery.toLowerCase() === 'low' ? "#e74c3c" : "#00ffcc";
+    }
+    return "#6c757d";
+  };
+
   const getCO2Color = (ppm: number) => {
     if (ppm < 800) return "#00ffcc";
     if (ppm < 1200) return "#f39c12";
@@ -220,9 +253,9 @@ export default function Index() {
             </View>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons
-                name={sensorMetrics.battery_pct > 20 ? "battery-high" : "battery-low"}
+                name={getBatteryIcon(sensorMetrics.battery_pct)}
                 size={18}
-                color={sensorMetrics.online ? "#00ffcc" : "#e74c3c"}
+                color={sensorMetrics.online ? getBatteryColor(sensorMetrics.battery_pct) : "#e74c3c"}
               />
               <Text style={styles.statusText}>
                 {sensorMetrics.online ? `${sensorMetrics.battery_pct}%` : 'OFFLINE'}
@@ -286,9 +319,21 @@ export default function Index() {
         <View style={styles.zigbeeContainer}>
           {/* Indoor Sensor Box */}
           <View style={styles.zigbeeCard}>
-            <View style={styles.indicatorBlock}>
-              <Ionicons name="home-outline" size={14} color="#8e9aaf" />
-              <Text style={styles.zigbeeCardTitle}>INDOOR</Text>
+            <View style={styles.zigbeeCardHeader}>
+              <View style={styles.indicatorBlock}>
+                <Ionicons name="home-outline" size={14} color="#8e9aaf" />
+                <Text style={styles.zigbeeCardTitle}>INDOOR</Text>
+              </View>
+              <View style={styles.indicatorBlock}>
+                <MaterialCommunityIcons
+                  name={getBatteryIcon(indoorMetrics?.battery)}
+                  size={14}
+                  color={getBatteryColor(indoorMetrics?.battery)}
+                />
+                <Text style={styles.zigbeeBatteryText}>
+                  {formatBatteryValue(indoorMetrics?.battery)}
+                </Text>
+              </View>
             </View>
             <View style={styles.zigbeeMetricsRow}>
               <View style={styles.zigbeeMetric}>
@@ -310,9 +355,21 @@ export default function Index() {
 
           {/* Outdoor Sensor Box */}
           <View style={styles.zigbeeCard}>
-            <View style={styles.indicatorBlock}>
-              <Ionicons name="leaf-outline" size={14} color="#8e9aaf" />
-              <Text style={styles.zigbeeCardTitle}>OUTDOOR</Text>
+            <View style={styles.zigbeeCardHeader}>
+              <View style={styles.indicatorBlock}>
+                <Ionicons name="leaf-outline" size={14} color="#8e9aaf" />
+                <Text style={styles.zigbeeCardTitle}>OUTDOOR</Text>
+              </View>
+              <View style={styles.indicatorBlock}>
+                <MaterialCommunityIcons
+                  name={getBatteryIcon(outdoorMetrics?.battery)}
+                  size={14}
+                  color={getBatteryColor(outdoorMetrics?.battery)}
+                />
+                <Text style={styles.zigbeeBatteryText}>
+                  {formatBatteryValue(outdoorMetrics?.battery)}
+                </Text>
+              </View>
             </View>
             <View style={styles.zigbeeMetricsRow}>
               <View style={styles.zigbeeMetric}>
@@ -473,7 +530,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1d21',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 16, // reduced slightly to accommodate the new boxes below
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#2d3238',
   },
@@ -517,11 +574,25 @@ const styles = StyleSheet.create({
     borderColor: '#2d3238',
     alignItems: 'center',
   },
+  zigbeeCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d3238',
+    paddingBottom: 6,
+  },
   zigbeeCardTitle: {
     color: '#8e9aaf',
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
+  },
+  zigbeeBatteryText: {
+    color: '#8e9aaf',
+    fontSize: 10,
+    fontFamily: 'monospace',
   },
   zigbeeMetricsRow: {
     flexDirection: 'row',
@@ -554,7 +625,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
-  indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
     backgroundColor: '#0b1f1f',
