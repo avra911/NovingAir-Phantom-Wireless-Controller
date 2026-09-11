@@ -6,7 +6,7 @@ from tasks import poll_air_sensor_task
 @pytest.mark.asyncio
 async def test_scenario_1_normal_co2():
     mock_sensor = MagicMock()
-    # Valoare CO2 scazuta (450) pentru ca target_speed sa devina 1
+    # Low CO2 value (450) so that target_speed becomes 1
     mock_sensor.status.return_value = {
         "dps": {"1": "normal", "2": 450, "18": 25, "19": 52}
     }
@@ -324,7 +324,7 @@ async def test_scenario_automation_disabled():
 @pytest.mark.asyncio
 async def test_scenario_deadzone_morning_shift():
     mock_sensor = MagicMock()
-    # Nivel ridicat de CO2 in ambele iterari (1350) pentru a atinge pragul de viteza 3
+    # High CO2 level in both iterations (1350) to reach speed threshold 3
     mock_sensor.status.side_effect = [
         {"dps": {"1": "alarm", "2": 1350}},
         {"dps": {"1": "alarm", "2": 1350}} 
@@ -388,11 +388,11 @@ async def test_scenario_deadzone_morning_shift():
 
 @pytest.mark.asyncio
 async def test_scenario_medium_co2_day_and_night():
-    # Verifică regula: 800-1200 ppm -> 2 ziua și 1 noaptea
+    # Verify rule: 800-1200 ppm -> 2 day and 1 night
     mock_sensor = MagicMock()
     mock_sensor.status.side_effect = [
-        {"dps": {"1": "alarm", "2": 1000}}, # Iterarea 1: 1000 ppm (Zi) -> Viteză 2
-        {"dps": {"1": "alarm", "2": 1000}}  # Iterarea 2: 1000 ppm (Noapte) -> Viteză 1
+        {"dps": {"1": "alarm", "2": 1000}}, # Iteration 1: 1000 ppm (Day) -> Speed 2
+        {"dps": {"1": "alarm", "2": 1000}}  # Iteration 2: 1000 ppm (Night) -> Speed 1
     ]
     mock_ir = MagicMock()
     button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_1": "BTN_S1", "SPEED_2": "BTN_S2"}
@@ -403,8 +403,8 @@ async def test_scenario_medium_co2_day_and_night():
     mock_gateway.get_outdoor.return_value = MagicMock(temperature=22.0, humidity=50, battery=100)
 
     mock_times = [
-        datetime(2026, 6, 6, 14, 0, 0),  # Zi
-        datetime(2026, 6, 6, 23, 0, 0)   # Noapte
+        datetime(2026, 6, 6, 14, 0, 0),  # Day
+        datetime(2026, 6, 6, 23, 0, 0)   # Night
     ]
     time_idx = 0
 
@@ -433,6 +433,6 @@ async def test_scenario_medium_co2_day_and_night():
                     gateway=mock_gateway,
                 )
 
-    # La finalul celei de-a doua iterări (noaptea), viteza trebuie să fie 1
+    # At the end of the second iteration (night), speed must be 1
     assert state_dict["speed"] == 1
     mock_ir.send_button.assert_any_call("BTN_S1")
