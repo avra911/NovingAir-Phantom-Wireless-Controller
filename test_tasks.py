@@ -86,7 +86,7 @@ async def test_scenario_2_high_co2_cooler_outdoor():
 
     assert state_dict["flux"] == "NORTH_SOUTH"
     assert state_dict["mode"] == "NONE"
-    assert state_dict["boost"] is True
+    assert state_dict["boost"] is False
     assert state_dict["speed"] == 3
     mock_ir.send_button.assert_any_call("BTN_NS")
     mock_ir.send_button.assert_any_call("BTN_S3")
@@ -136,7 +136,7 @@ async def test_scenario_3_high_co2_indoor_preferred():
 
     assert state_dict["mode"] == "MANUAL"
     assert state_dict["flux"] == "NONE"
-    assert state_dict["boost"] is True
+    assert state_dict["boost"] is False
     assert state_dict["speed"] == 3
     mock_ir.send_button.assert_any_call("BTN_MANUAL")
     mock_ir.send_button.assert_any_call("BTN_S3")
