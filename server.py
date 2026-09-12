@@ -251,7 +251,11 @@ async def command(action: str):
             CURRENT_STATE["night"] = False
 
     elif action == "TOGGLE_AUTO":
-        CURRENT_STATE["automation_enabled"] = not CURRENT_STATE.get("automation_enabled", True)
+        new_state = not CURRENT_STATE.get("automation_enabled", True)
+        CURRENT_STATE["automation_enabled"] = new_state
+        if not new_state:
+            # Inject an instant reset flag for the background task to catch
+            CURRENT_STATE["reset_speed_lock"] = True
 
     elif action == "RESET":
         send_ir_button("RESET")

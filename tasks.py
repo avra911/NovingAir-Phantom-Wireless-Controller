@@ -140,6 +140,10 @@ async def poll_air_sensor_task(
 
     while True:
         try:
+            # Check for instant UI reset signals from server.py
+            if state_dict.pop("reset_speed_lock", False):
+                last_speed_change = None
+
             # 1. Read main air-quality sensor
             try:
                 co2_data = await loop.run_in_executor(None, fetch_co2_sensor_data, co2_sensor)
