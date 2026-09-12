@@ -495,7 +495,8 @@ export default function Index() {
         {/* --- REMOTE CONTROL BUTTONS --- */}
         <View style={styles.grid}>
           {buttons.map((btn) => {
-            const isDisabled = loading !== null;
+            // Disable button if loading, OR if automation is enabled (and it's not the toggle itself)
+            const isDisabled = loading !== null || (phantomState.automation_enabled && btn.key !== "TOGGLE_AUTO");
             return (
               <TouchableOpacity
                 key={btn.key}

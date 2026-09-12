@@ -218,6 +218,8 @@ async def poll_air_sensor_task(
             # 7. Persist & cleanup
             was_night = night
             if state_changed:
+                state_dict["boost"] = False
+                state_dict["night"] = False
                 save_state_func(state_dict)
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
