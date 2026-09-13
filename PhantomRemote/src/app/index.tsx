@@ -249,7 +249,7 @@ export default function Index() {
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons name="molecule-co2" size={24} color={getCO2Color(sensorMetrics.co2_ppm)} />
-              <Text style={styles.cardHeaderTitle}>AIR QUALITY</Text>
+              <Text style={styles.cardHeaderTitle}>AIR DETECTOR</Text>
             </View>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons
@@ -545,16 +545,16 @@ const styles = StyleSheet.create({
   },
   cardHeaderTitle: { color: '#8e9aaf', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
   statusText: { color: '#8e9aaf', fontSize: 11, fontFamily: 'monospace' },
-  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  metricsGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    justifyContent: 'space-between',
+    rowGap: 10,
+  },
   metricItem: {
     width: '23%',
-    backgroundColor: '#000000',
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 8,
+    paddingVertical: 4,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
   },
   metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
   metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
