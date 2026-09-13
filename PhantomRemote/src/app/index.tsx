@@ -133,7 +133,7 @@ export default function Index() {
 
   const buttons = [
     { label: "BOOST", key: "BOOST", color: "#e74c3c", icon: "rocket-outline" },
-    { label: "NIGHT", key: "NIGHT", color: "#34495e", icon: "moon-outline" },
+    { label: "NIGHT", key: "NIGHT", color: "#2c3e50", icon: "moon-outline" },
     { label: "SPEED", key: "SPEED", color: "#2980b9", icon: "speedometer-outline" },
     { label: "MODE", key: "MODE", color: "#27ae60", icon: "options-outline" },
     { label: "FLUX", key: "FLUX", color: "#8e44ad", icon: "swap-horizontal-outline" },
@@ -141,10 +141,10 @@ export default function Index() {
     { 
       label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)", 
       key: "TOGGLE_AUTO", 
-      color: phantomState.automation_enabled ? "#27ae60" : "#555", 
+      color: phantomState.automation_enabled ? "#27ae60" : "#333333", 
       icon: "hardware-chip-outline" 
     },
-    { label: "RESET", key: "RESET", color: "#7f8c8d", icon: "refresh-outline" },
+    { label: "RESET", key: "RESET", color: "#4a5568", icon: "refresh-outline" },
   ];
 
   const getFluxIcon = (flux: PhantomState['flux']) => {
@@ -404,7 +404,7 @@ export default function Index() {
                   "minus-circle-outline"
                 }
                 size={18}
-                color={phantomState.mode !== 'NONE' ? "#00ffcc" : "#555"}
+                color={phantomState.mode !== 'NONE' ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, phantomState.mode === 'NONE' && styles.disabledTextLabel]}>MODE</Text>
@@ -419,7 +419,7 @@ export default function Index() {
               <MaterialCommunityIcons
                 name="fan"
                 size={18}
-                color={(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') ? "#00ffcc" : "#555"}
+                color={(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.disabledTextLabel]}>SPEED</Text>
@@ -436,7 +436,7 @@ export default function Index() {
               <MaterialCommunityIcons
                 name="water-percent"
                 size={18}
-                color={(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') ? "#00ffcc" : "#555"}
+                color={(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.disabledTextLabel]}>HUM TARGET</Text>
@@ -452,7 +452,7 @@ export default function Index() {
               <MaterialCommunityIcons
                 name={getFluxIcon(phantomState.flux)}
                 size={18}
-                color={phantomState.flux !== 'NONE' ? "#00ffcc" : "#555"}
+                color={phantomState.flux !== 'NONE' ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, phantomState.flux === 'NONE' && styles.disabledTextLabel]}>FLUX</Text>
@@ -466,7 +466,7 @@ export default function Index() {
               <MaterialCommunityIcons
                 name="weather-night"
                 size={18}
-                color={phantomState.night ? "#00ffcc" : "#555"}
+                color={phantomState.night ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !phantomState.night && styles.disabledTextLabel]}>NIGHT</Text>
@@ -480,7 +480,7 @@ export default function Index() {
               <MaterialCommunityIcons
                 name="lightning-bolt"
                 size={18}
-                color={phantomState.boost ? "#00ffcc" : "#555"}
+                color={phantomState.boost ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !phantomState.boost && styles.disabledTextLabel]}>BOOST</Text>
@@ -495,7 +495,6 @@ export default function Index() {
         {/* --- REMOTE CONTROL BUTTONS --- */}
         <View style={styles.grid}>
           {buttons.map((btn) => {
-            // Disable button if loading, OR if automation is enabled (and it's not the toggle itself)
             const isDisabled = loading !== null || (phantomState.automation_enabled && btn.key !== "TOGGLE_AUTO");
             return (
               <TouchableOpacity
@@ -522,18 +521,18 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#000000' },
   scrollContent: { alignItems: 'center', paddingVertical: 20 },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 16 },
+  title: { fontSize: 22, fontWeight: 'bold', color: '#ffffff', marginBottom: 16 },
   
   sensorCard: {
     width: '90%',
-    backgroundColor: '#1a1d21',
+    backgroundColor: '#000000',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#2d3238',
+    borderColor: '#222222',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -541,7 +540,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2d3238',
+    borderBottomColor: '#222222',
     paddingBottom: 8,
   },
   cardHeaderTitle: { color: '#8e9aaf', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
@@ -549,11 +548,13 @@ const styles = StyleSheet.create({
   metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   metricItem: {
     width: '23%',
-    backgroundColor: '#121417',
+    backgroundColor: '#000000',
     borderRadius: 8,
     padding: 8,
     marginBottom: 8,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
   },
   metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
   metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
@@ -568,11 +569,11 @@ const styles = StyleSheet.create({
   },
   zigbeeCard: {
     width: '48%',
-    backgroundColor: '#1a1d21',
+    backgroundColor: '#000000',
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#2d3238',
+    borderColor: '#222222',
     alignItems: 'center',
   },
   zigbeeCardHeader: {
@@ -581,7 +582,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     borderBottomWidth: 1,
-    borderBottomColor: '#2d3238',
+    borderBottomColor: '#222222',
     paddingBottom: 6,
   },
   zigbeeCardTitle: {
@@ -608,13 +609,12 @@ const styles = StyleSheet.create({
   // --- LCD STYLES ---
   lcdScreen: {
     width: '90%',
-    backgroundColor: '#071515',
+    backgroundColor: '#000000',
     borderColor: '#00ffcc',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
-    elevation: 8,
   },
   lcdHeaderTitle: {
     color: '#00ffcc',
@@ -623,14 +623,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: 'center',
     marginBottom: 10,
-    opacity: 0.6,
+    opacity: 0.8,
   },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
-    backgroundColor: '#0b1f1f',
-    borderColor: '#0b2e2e',
+    backgroundColor: '#000000',
+    borderColor: '#1f1f1f',
     borderWidth: 1,
     borderRadius: 8,
     paddingVertical: 6,
@@ -640,12 +640,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#0c2626' },
-  statusBoxLabel: { color: '#00ffcc', fontSize: 8, fontWeight: 'bold', opacity: 0.7 },
+  statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
+  statusBoxLabel: { color: '#00ffcc', fontSize: 8, fontWeight: 'bold', opacity: 0.8 },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
-  disabledText: { color: '#445555' },
-  disabledTextLabel: { color: '#445555', opacity: 1 },
+  disabledText: { color: '#333333' },
+  disabledTextLabel: { color: '#333333', opacity: 1 },
   
   // --- BUTTON GRID ---
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: '90%' },
@@ -658,8 +658,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#222222',
   },
-  disabledButton: { opacity: 0.25 },
+  disabledButton: { opacity: 0.2 },
   btnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });
