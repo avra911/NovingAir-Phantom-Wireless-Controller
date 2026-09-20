@@ -11,8 +11,49 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
+
+const PHANTOM_GLYPHS = {
+  auto: '\ue900',
+  monitor: '\ue901',
+  slave_master: '\ue902',
+  master_slave: '\ue903',
+  night: '\ue904',
+  manual: '\ue905',
+  fan: '\ue906',
+  humidity: '\ue907',
+  insert: '\ue908',
+  home: '\ue909',
+  evac: '\ue90a',
+  temp_evac: '\ue90b',
+} as const;
+
+type PhantomGlyphName = keyof typeof PHANTOM_GLYPHS;
+
+function PhantomGlyph({ name, size = 72, color = '#00ffcc' }: {
+  name: PhantomGlyphName;
+  size?: number;
+  color?: string;
+}) {
+  return <Text style={{ color, fontFamily: 'Phantom', fontSize: size, lineHeight: size }}>{PHANTOM_GLYPHS[name]}</Text>;
+}
+
+function PhantomLevelGlyphs({ name, level, color }: {
+  name: 'fan' | 'humidity';
+  level: number;
+  color: string;
+}) {
+  const boundedLevel = Math.max(1, Math.min(3, level));
+  return (
+    <View style={styles.phantomLevelIcons}>
+      {Array.from({ length: boundedLevel }, (_, index) => (
+        <PhantomGlyph key={`${name}-${index}`} name={name} size={14 + index * 4} color={color} />
+      ))}
+    </View>
+  );
+}
 
 export interface PhantomState {
   mode: 'AUTO' | 'SLEEP' | 'MANUAL' | 'NONE';
@@ -340,6 +381,7 @@ export default function Index() {
   const [outdoorMetrics, setOutdoorMetrics] = useState<EnvironmentalSensor | null>(null);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
+  const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
 
   useEffect(() => {
     fetchState();
@@ -413,23 +455,43 @@ export default function Index() {
     { label: "MODE", key: "MODE", color: "#27ae60", icon: "options-outline" },
     { label: "FLUX", key: "FLUX", color: "#8e44ad", icon: "swap-horizontal-outline" },
     { label: "HUMIDITY", key: "HUMIDITY", color: "#d35400", icon: "water-outline" },
-    { 
-      label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)", 
-      key: "TOGGLE_AUTO", 
-      color: phantomState.automation_enabled ? "#27ae60" : "#333333", 
-      icon: "hardware-chip-outline" 
+    {
+      label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)",
+      key: "TOGGLE_AUTO",
+      color: phantomState.automation_enabled ? "#27ae60" : "#333333",
+      icon: "hardware-chip-outline"
     },
     { label: "RESET", key: "RESET", color: "#4a5568", icon: "refresh-outline" },
   ];
 
-  const getFluxIcon = (flux: PhantomState['flux']) => {
+  const getModeGlyph = (mode: PhantomState['mode']): PhantomGlyphName | null => {
+    switch (mode) {
+      case 'AUTO': return 'auto';
+      case 'SLEEP': return 'monitor';
+      case 'MANUAL': return 'manual';
+      default: return null;
+    }
+  };
+
+  const getFluxGlyph = (flux: PhantomState['flux']): PhantomGlyphName | null => {
     switch (flux) {
-      case 'SOUTH_NORTH': return "sync";
-      case 'EXTRACT': return "sync-off";
-      case 'INTAKE': return "arrow-down-bold";
-      case 'NORTH_SOUTH': return "arrow-up-bold";
-      case 'NONE': return "minus-circle-outline";
-      default: return "sync";
+      case 'NORTH_SOUTH': return 'master_slave';
+      case 'SOUTH_NORTH': return 'slave_master';
+      case 'INTAKE': return 'insert';
+      case 'EXTRACT': return 'evac';
+      default: return null;
+    }
+  };
+
+  const getButtonPhantomGlyph = (buttonKey: string): PhantomGlyphName | null => {
+    switch (buttonKey) {
+      case 'BOOST': return 'temp_evac';
+      case 'NIGHT': return 'night';
+      case 'SPEED': return 'fan';
+      case 'MODE': return getModeGlyph(phantomState.mode) ?? 'home';
+      case 'FLUX': return 'home';
+      case 'HUMIDITY': return 'humidity';
+      default: return null;
     }
   };
 
@@ -509,7 +571,7 @@ export default function Index() {
 
   const activeHistoryConfig = activeHistoryMetric ? getHistoryChartConfig(activeHistoryMetric) : null;
 
-  if (initialFetching) {
+  if (!fontsLoaded || initialFetching) {
     return (
       <SafeAreaView style={styles.container}>
         <ActivityIndicator size="large" color="#00ffcc" />
@@ -713,19 +775,13 @@ export default function Index() {
 
           <View style={styles.lcdRow}>
             <View style={[styles.statusBox, phantomState.mode !== 'NONE' && styles.statusBoxHighlighted]}>
-              <MaterialCommunityIcons
-                name={
-                  phantomState.mode === 'AUTO' ? "brightness-auto" :
-                  phantomState.mode === 'SLEEP' ? "sleep" :
-                  phantomState.mode === 'MANUAL' ? "gesture-tap" :
-                  "minus-circle-outline"
-                }
-                size={18}
-                color={phantomState.mode !== 'NONE' ? "#00ffcc" : "#444"}
-              />
+              {getModeGlyph(phantomState.mode) ? (
+                <PhantomGlyph name={getModeGlyph(phantomState.mode)!} color="#00ffcc" />
+              ) : (
+                <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
+              )}
               <View>
                 <Text style={[styles.statusBoxLabel, phantomState.mode === 'NONE' && styles.disabledTextLabel]}>MODE</Text>
-                <Text style={[styles.statusBoxValue, phantomState.mode === 'NONE' && styles.disabledText]}>{phantomState.mode}</Text>
               </View>
             </View>
 
@@ -733,16 +789,13 @@ export default function Index() {
               styles.statusBox, 
               (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.statusBoxHighlighted
             ]}>
-              <MaterialCommunityIcons
+              <PhantomLevelGlyphs
                 name="fan"
-                size={18}
+                level={phantomState.speed}
                 color={(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.disabledTextLabel]}>SPEED</Text>
-                <Text style={[styles.statusBoxValue, !(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.disabledText]}>
-                  {phantomState.speed}
-                </Text>
               </View>
             </View>
 
@@ -750,60 +803,40 @@ export default function Index() {
               styles.statusBox, 
               (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.statusBoxHighlighted
             ]}>
-              <MaterialCommunityIcons
-                name="water-percent"
-                size={18}
+              <PhantomLevelGlyphs
+                name="humidity"
+                level={phantomState.humidity}
                 color={(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') ? "#00ffcc" : "#444"}
               />
               <View>
                 <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.disabledTextLabel]}>HUM TARGET</Text>
-                <Text style={[styles.statusBoxValue, !(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.disabledText]}>
-                  {phantomState.humidity}
-                </Text>
               </View>
             </View>
           </View>
 
           <View style={styles.lcdRow}>
             <View style={[styles.statusBox, phantomState.flux !== 'NONE' && styles.statusBoxHighlighted]}>
-              <MaterialCommunityIcons
-                name={getFluxIcon(phantomState.flux)}
-                size={18}
-                color={phantomState.flux !== 'NONE' ? "#00ffcc" : "#444"}
-              />
+              {getFluxGlyph(phantomState.flux) ? (
+                <PhantomGlyph name={getFluxGlyph(phantomState.flux)!} color="#00ffcc" />
+              ) : (
+                <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
+              )}
               <View>
                 <Text style={[styles.statusBoxLabel, phantomState.flux === 'NONE' && styles.disabledTextLabel]}>FLUX</Text>
-                <Text style={[styles.statusBoxValue, phantomState.flux === 'NONE' && styles.disabledText]}>
-                  {phantomState.flux}
-                </Text>
               </View>
             </View>
 
             <View style={[styles.statusBox, phantomState.night && styles.statusBoxHighlighted]}>
-              <MaterialCommunityIcons
-                name="weather-night"
-                size={18}
-                color={phantomState.night ? "#00ffcc" : "#444"}
-              />
+              <PhantomGlyph name="night" color={phantomState.night ? "#00ffcc" : "#444"} />
               <View>
                 <Text style={[styles.statusBoxLabel, !phantomState.night && styles.disabledTextLabel]}>NIGHT</Text>
-                <Text style={[styles.statusBoxValue, !phantomState.night && styles.disabledText]}>
-                  {phantomState.night ? 'ON' : 'OFF'}
-                </Text>
               </View>
             </View>
 
             <View style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}>
-              <MaterialCommunityIcons
-                name="lightning-bolt"
-                size={18}
-                color={phantomState.boost ? "#00ffcc" : "#444"}
-              />
+              <PhantomGlyph name="temp_evac" color={phantomState.boost ? "#00ffcc" : "#444"} />
               <View>
                 <Text style={[styles.statusBoxLabel, !phantomState.boost && styles.disabledTextLabel]}>BOOST</Text>
-                <Text style={[styles.statusBoxValue, !phantomState.boost && styles.disabledText]}>
-                  {phantomState.boost ? 'ON' : 'OFF'}
-                </Text>
               </View>
             </View>
           </View>
@@ -824,7 +857,11 @@ export default function Index() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <>
-                    <Ionicons name={btn.icon as any} size={20} color="#fff" />
+                    {getButtonPhantomGlyph(btn.key) ? (
+                      <PhantomGlyph name={getButtonPhantomGlyph(btn.key)!} size={24} color="#fff" />
+                    ) : (
+                      <Ionicons name={btn.icon as any} size={20} color="#fff" />
+                    )}
                     <Text style={styles.btnText}>{btn.label}</Text>
                   </>
                 )}
@@ -1100,7 +1137,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     opacity: 0.8,
   },
-  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
+  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 6 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
@@ -1108,15 +1145,18 @@ const styles = StyleSheet.create({
     borderColor: '#1f1f1f',
     borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 6,
+    minHeight: 108,
+    paddingVertical: 10,
     paddingHorizontal: 8,
     marginHorizontal: 3,
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 8,
   },
   statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
-  statusBoxLabel: { color: '#00ffcc', fontSize: 8, fontWeight: 'bold', opacity: 0.8 },
+  phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 1 },
+  statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
   disabledText: { color: '#333333' },
