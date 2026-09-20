@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ from config import (
 )
 
 from gateway import TuyaGateway
-from tasks import poll_air_sensor_task
+from tasks import AIR_HISTORY_DB, get_air_metrics_history, poll_air_sensor_task
 
 app = FastAPI()
 
@@ -141,6 +141,7 @@ async def startup_event():
             air_metrics_dict=AIR_METRICS,
             save_state_func=save_state,
             gateway=gateway,
+            air_history_db_path=AIR_HISTORY_DB,
         )
     )
     print("[STARTUP] Air sensor automation started.")
@@ -184,6 +185,12 @@ async def get_state():
             "humidity_pct": AIR_METRICS.get("outdoor_humidity_pct"),
             "battery": AIR_METRICS.get("outdoor_battery"),
         },
+    }
+
+@app.get("/history")
+async def get_history(limit: int = Query(default=43200, ge=1, le=43200)):
+    return {
+        "history": get_air_metrics_history(AIR_HISTORY_DB, limit),
     }
 
 @app.get("/")

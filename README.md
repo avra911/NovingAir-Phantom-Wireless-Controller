@@ -60,6 +60,8 @@ Useful endpoints:
 - `POST /command/MODE` cycles `AUTO -> SLEEP -> MANUAL`.
 - `POST /command/HUMIDITY`, `/FLUX`, `/NIGHT`, `/BOOST`, and `/RESET` control the remaining functions.
 
+The backend also saves one sensor snapshot per polling cycle into SQLite. By default, history is stored in `data/air_history.sqlite3`. Set `AIR_HISTORY_DB=/path/to/file.sqlite3` in `.env` to use a different location.
+
 ## Run the mobile app (Development)
 
 In another terminal:

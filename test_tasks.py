@@ -1,7 +1,9 @@
+import sqlite3
+
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
-from tasks import poll_air_sensor_task
+from tasks import get_air_metrics_history, poll_air_sensor_task, save_air_metrics_snapshot
 
 @pytest.mark.asyncio
 async def test_scenario_1_normal_co2():
@@ -39,6 +41,97 @@ async def test_scenario_1_normal_co2():
 
     assert state_dict["speed"] == 1
     mock_ir.send_button.assert_any_call("BTN_S1")
+
+
+@pytest.mark.asyncio
+async def test_poll_persists_air_metrics_snapshot(tmp_path):
+    mock_sensor = MagicMock()
+    mock_sensor.status.return_value = {
+        "dps": {"1": "normal", "2": 650, "18": 23.5, "19": 48, "20": 7, "21": 250, "22": 30}
+    }
+
+    mock_ir = MagicMock()
+    button_codes = {"MODE_MANUAL": "BTN_MANUAL", "SPEED_1": "BTN_S1"}
+    state_dict = {"mode": "MANUAL", "speed": 1, "flux": "NONE", "boost": False, "automation_enabled": False}
+    air_metrics = {}
+    mock_gateway = MagicMock()
+    mock_gateway.get_indoor.return_value = MagicMock(temperature=22.0, humidity=45, battery=91)
+    mock_gateway.get_outdoor.return_value = MagicMock(temperature=12.0, humidity=60, battery=88)
+    db_path = tmp_path / "air_history.sqlite3"
+
+    async def mock_sleep(secs):
+        if secs == 60:
+            raise InterruptedError
+
+    with patch("asyncio.sleep", side_effect=mock_sleep):
+        with pytest.raises(InterruptedError):
+            await poll_air_sensor_task(
+                co2_sensor=mock_sensor,
+                ir_device=mock_ir,
+                button_codes=button_codes,
+                state_dict=state_dict,
+                air_metrics_dict=air_metrics,
+                save_state_func=MagicMock(),
+                gateway=mock_gateway,
+                air_history_db_path=str(db_path),
+            )
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT co2_ppm, temperature_c, humidity_pct, voc_mgm3,
+                   ch2o_mgm3, online, indoor_temperature_c,
+                   outdoor_temperature_c, zigbee_online
+            FROM air_metrics_history
+            """
+        ).fetchone()
+
+    assert row == (650.0, 23.5, 48.0, 0.25, 0.03, 1, 22.0, 12.0, 1)
+
+
+def test_existing_air_history_db_does_not_recreate_schema(tmp_path):
+    db_path = tmp_path / "air_history.sqlite3"
+    metrics = {"co2_ppm": 650, "online": True, "zigbee_online": True}
+
+    save_air_metrics_snapshot(metrics, str(db_path))
+
+    with patch("tasks._create_air_history_schema") as create_schema:
+        save_air_metrics_snapshot(metrics, str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        row_count = conn.execute("SELECT COUNT(*) FROM air_metrics_history").fetchone()[0]
+
+    create_schema.assert_not_called()
+    assert row_count == 2
+
+
+def test_get_air_metrics_history_returns_oldest_to_newest_limited_rows(tmp_path):
+    db_path = tmp_path / "air_history.sqlite3"
+
+    save_air_metrics_snapshot(
+        {"co2_ppm": 500, "temperature_c": 22, "online": True, "zigbee_online": True},
+        str(db_path),
+        datetime(2026, 1, 1, 10, 0, 0),
+    )
+    save_air_metrics_snapshot(
+        {"co2_ppm": 650, "temperature_c": 23, "online": True, "zigbee_online": True},
+        str(db_path),
+        datetime(2026, 1, 1, 10, 1, 0),
+    )
+    save_air_metrics_snapshot(
+        {"co2_ppm": 700, "temperature_c": 24, "online": True, "zigbee_online": True},
+        str(db_path),
+        datetime(2026, 1, 1, 10, 2, 0),
+    )
+
+    history = get_air_metrics_history(str(db_path), limit=2)
+
+    assert [row["co2_ppm"] for row in history] == [650.0, 700.0]
+    assert history[0]["fetched_at"] == "2026-01-01T10:01:00"
+
+
+def test_get_air_metrics_history_missing_db_returns_empty_list(tmp_path):
+    assert get_air_metrics_history(str(tmp_path / "missing.sqlite3")) == []
 
 
 @pytest.mark.asyncio

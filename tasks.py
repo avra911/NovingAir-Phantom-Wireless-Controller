@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
 import os
+import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -16,6 +18,28 @@ NIGHT_END_HOUR = 8
 SPEED_CHANGE_LOCK_MINUTES = 30
 POLL_INTERVAL_SECONDS = 60
 TEMP_HYSTERESIS_C = 0.5  # Prevents rapid toggling
+AIR_HISTORY_DB = os.environ.get("AIR_HISTORY_DB", "data/air_history.sqlite3")
+
+AIR_HISTORY_FIELDS = (
+    "co2_ppm",
+    "co2_state",
+    "temperature_c",
+    "humidity_pct",
+    "pm1_ugm3",
+    "pm25_ugm3",
+    "pm10_ugm3",
+    "voc_mgm3",
+    "ch2o_mgm3",
+    "battery_pct",
+    "online",
+    "indoor_temperature_c",
+    "indoor_humidity_pct",
+    "indoor_battery",
+    "outdoor_temperature_c",
+    "outdoor_humidity_pct",
+    "outdoor_battery",
+    "zigbee_online",
+)
 
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
@@ -91,6 +115,135 @@ def _apply_last_known_good(target: dict, source: dict):
         if value is not None:
             target[key] = value
 
+def _create_air_history_schema(conn: sqlite3.Connection):
+    conn.execute(
+        """
+        CREATE TABLE air_metrics_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fetched_at TEXT NOT NULL,
+            co2_ppm REAL,
+            co2_state TEXT,
+            temperature_c REAL,
+            humidity_pct REAL,
+            pm1_ugm3 REAL,
+            pm25_ugm3 REAL,
+            pm10_ugm3 REAL,
+            voc_mgm3 REAL,
+            ch2o_mgm3 REAL,
+            battery_pct REAL,
+            online INTEGER NOT NULL,
+            indoor_temperature_c REAL,
+            indoor_humidity_pct REAL,
+            indoor_battery REAL,
+            outdoor_temperature_c REAL,
+            outdoor_humidity_pct REAL,
+            outdoor_battery REAL,
+            zigbee_online INTEGER NOT NULL,
+            payload_json TEXT NOT NULL
+        )
+        """
+    )
+
+def save_air_metrics_snapshot(metrics: dict, db_path: str, fetched_at: datetime | None = None):
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    should_create_schema = not os.path.exists(db_path)
+    timestamp = (fetched_at or _get_now()).isoformat()
+    snapshot = {field: metrics.get(field) for field in AIR_HISTORY_FIELDS}
+
+    with sqlite3.connect(db_path) as conn:
+        if should_create_schema:
+            _create_air_history_schema(conn)
+
+        conn.execute(
+            """
+            INSERT INTO air_metrics_history (
+                fetched_at,
+                co2_ppm,
+                co2_state,
+                temperature_c,
+                humidity_pct,
+                pm1_ugm3,
+                pm25_ugm3,
+                pm10_ugm3,
+                voc_mgm3,
+                ch2o_mgm3,
+                battery_pct,
+                online,
+                indoor_temperature_c,
+                indoor_humidity_pct,
+                indoor_battery,
+                outdoor_temperature_c,
+                outdoor_humidity_pct,
+                outdoor_battery,
+                zigbee_online,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                snapshot["co2_ppm"],
+                snapshot["co2_state"],
+                snapshot["temperature_c"],
+                snapshot["humidity_pct"],
+                snapshot["pm1_ugm3"],
+                snapshot["pm25_ugm3"],
+                snapshot["pm10_ugm3"],
+                snapshot["voc_mgm3"],
+                snapshot["ch2o_mgm3"],
+                snapshot["battery_pct"],
+                int(bool(snapshot["online"])),
+                snapshot["indoor_temperature_c"],
+                snapshot["indoor_humidity_pct"],
+                snapshot["indoor_battery"],
+                snapshot["outdoor_temperature_c"],
+                snapshot["outdoor_humidity_pct"],
+                snapshot["outdoor_battery"],
+                int(bool(snapshot["zigbee_online"])),
+                json.dumps(snapshot),
+            ),
+        )
+
+def get_air_metrics_history(db_path: str, limit: int = 180) -> list[dict]:
+    if not os.path.exists(db_path):
+        return []
+
+    safe_limit = max(1, min(limit, 43200))
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT
+                    fetched_at,
+                    co2_ppm,
+                    temperature_c,
+                    humidity_pct,
+                    pm1_ugm3,
+                    pm25_ugm3,
+                    pm10_ugm3,
+                    voc_mgm3,
+                    ch2o_mgm3,
+                    indoor_temperature_c,
+                    indoor_humidity_pct,
+                    outdoor_temperature_c,
+                    outdoor_humidity_pct,
+                    online,
+                    zigbee_online
+                FROM air_metrics_history
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+    return [dict(row) for row in reversed(rows)]
+
 # IR commands must run synchronously but be awaited via executor
 def _send_ir(ir_device, button_codes: dict, button_name: str):
     code = button_codes.get(button_name)
@@ -130,6 +283,7 @@ async def poll_air_sensor_task(
     air_metrics_dict,
     save_state_func,
     gateway: TuyaGateway,
+    air_history_db_path: str | None = None,
 ):
     print("[STARTUP] Starting air sensor automation...")
     logging.info("Air sensor automation started.")
@@ -170,6 +324,17 @@ async def poll_air_sensor_task(
             except Exception as e:
                 logging.error(f"LOCAL ZIGBEE FETCH ERROR: {e}")
                 air_metrics_dict["zigbee_online"] = False
+
+            if air_history_db_path:
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        save_air_metrics_snapshot,
+                        air_metrics_dict.copy(),
+                        air_history_db_path,
+                    )
+                except Exception as e:
+                    logging.error(f"AIR HISTORY SAVE ERROR: {e}")
 
             # 3. Automation decision
             if not state_dict.get("automation_enabled", True):

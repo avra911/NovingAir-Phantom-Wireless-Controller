@@ -1,6 +1,8 @@
 .env
 .venv
 __pycache__
+data/*
+!data/empty
 logs/*
-!logs/emptystate.json
+!logs/empty
 state.json

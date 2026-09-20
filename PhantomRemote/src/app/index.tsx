@@ -6,7 +6,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  ScrollView
+  ScrollView,
+  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -50,6 +51,50 @@ export interface CombinedState {
   outdoor?: EnvironmentalSensor | null;
 }
 
+export interface HistorySample {
+  fetched_at: string;
+  co2_ppm: number | null;
+  temperature_c: number | null;
+  humidity_pct: number | null;
+  pm1_ugm3: number | null;
+  pm25_ugm3: number | null;
+  pm10_ugm3: number | null;
+  voc_mgm3: number | null;
+  ch2o_mgm3: number | null;
+  indoor_temperature_c: number | null;
+  indoor_humidity_pct: number | null;
+  outdoor_temperature_c: number | null;
+  outdoor_humidity_pct: number | null;
+  online: boolean | number;
+  zigbee_online: boolean | number;
+}
+
+export interface HistoryResponse {
+  history: HistorySample[];
+}
+
+type HistoryMetricKey =
+  | 'co2_ppm'
+  | 'temperature_c'
+  | 'humidity_pct'
+  | 'pm1_ugm3'
+  | 'pm25_ugm3'
+  | 'pm10_ugm3'
+  | 'voc_mgm3'
+  | 'ch2o_mgm3'
+  | 'indoor_temperature_c'
+  | 'indoor_humidity_pct'
+  | 'outdoor_temperature_c'
+  | 'outdoor_humidity_pct';
+
+interface HistoryChartConfig {
+  key: HistoryMetricKey;
+  label: string;
+  unit: string;
+  color: string;
+  precision?: number;
+}
+
 const DEFAULT_PHANTOM: PhantomState = {
   mode: 'AUTO',
   speed: 3,
@@ -74,6 +119,218 @@ const DEFAULT_SENSOR: SensorMetrics = {
   online: false,
 };
 
+const HISTORY_LIMIT = 30 * 24 * 60;
+const VISIBLE_CHART_SAMPLES = 60;
+
+const HISTORY_CHARTS: HistoryChartConfig[] = [
+  { key: 'co2_ppm', label: 'CO2', unit: 'ppm', color: '#00ffcc' },
+  { key: 'temperature_c', label: 'AIR TEMP', unit: '°C', color: '#f39c12', precision: 1 },
+  { key: 'humidity_pct', label: 'AIR HUM', unit: '%', color: '#3498db' },
+  { key: 'pm1_ugm3', label: 'PM1.0', unit: 'µg/m³', color: '#7bed9f', precision: 1 },
+  { key: 'pm25_ugm3', label: 'PM2.5', unit: 'µg/m³', color: '#a8e6cf', precision: 1 },
+  { key: 'pm10_ugm3', label: 'PM10', unit: 'µg/m³', color: '#f1c40f', precision: 1 },
+  { key: 'voc_mgm3', label: 'TVOC', unit: 'mg/m³', color: '#e67e22', precision: 2 },
+  { key: 'ch2o_mgm3', label: 'HCHO', unit: 'mg/m³', color: '#e74c3c', precision: 2 },
+  { key: 'indoor_temperature_c', label: 'INDOOR', unit: '°C', color: '#27ae60', precision: 1 },
+  { key: 'indoor_humidity_pct', label: 'INDOOR HUM', unit: '%', color: '#3498db' },
+  { key: 'outdoor_temperature_c', label: 'OUTDOOR', unit: '°C', color: '#8e9aaf', precision: 1 },
+  { key: 'outdoor_humidity_pct', label: 'OUTDOOR HUM', unit: '%', color: '#5dade2' },
+];
+
+const formatMetricNumber = (value: number | null | undefined, precision = 0) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  return value.toFixed(precision);
+};
+
+const formatHistoryTime = (isoValue?: string) => {
+  if (!isoValue) return '--:--';
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) return '--:--';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const getHistoryChartConfig = (metricKey: HistoryMetricKey) => {
+  return HISTORY_CHARTS.find((config) => config.key === metricKey) ?? HISTORY_CHARTS[0];
+};
+
+const getHealthyColorForHistoryValue = (metricKey: HistoryMetricKey, value: number | null | undefined, fallbackColor: string) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '#1f1f1f';
+
+  switch (metricKey) {
+    case 'co2_ppm':
+      if (value < 800) return '#00ffcc';
+      if (value < 1200) return '#f39c12';
+      return '#e74c3c';
+    case 'temperature_c':
+    case 'indoor_temperature_c':
+    case 'outdoor_temperature_c':
+      if (value >= 18 && value <= 24) return '#00ffcc';
+      if (value >= 15 && value <= 28) return '#f39c12';
+      return '#e74c3c';
+    case 'humidity_pct':
+    case 'indoor_humidity_pct':
+    case 'outdoor_humidity_pct':
+      if (value >= 30 && value <= 50) return '#00ffcc';
+      if (value >= 25 && value <= 60) return '#f39c12';
+      return '#e74c3c';
+    case 'pm1_ugm3':
+    case 'pm25_ugm3':
+    case 'pm10_ugm3':
+      if (value < 12) return '#00ffcc';
+      if (value < 35.4) return '#a8e6cf';
+      if (value < 55.4) return '#f39c12';
+      return '#e74c3c';
+    case 'voc_mgm3':
+      if (value < 0.3) return '#00ffcc';
+      if (value < 1.0) return '#f39c12';
+      return '#e74c3c';
+    case 'ch2o_mgm3':
+      if (value < 0.05) return '#00ffcc';
+      if (value < 0.1) return '#f39c12';
+      return '#e74c3c';
+    default:
+      return fallbackColor;
+  }
+};
+
+function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; samples: HistorySample[] }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const latestWindowStart = Math.max(samples.length - VISIBLE_CHART_SAMPLES, 0);
+  const [windowStart, setWindowStart] = useState(latestWindowStart);
+  const boundedWindowStart = Math.min(windowStart, latestWindowStart);
+  const totalWindows = Math.max(Math.ceil(samples.length / VISIBLE_CHART_SAMPLES), 1);
+  const currentWindow = Math.floor(boundedWindowStart / VISIBLE_CHART_SAMPLES);
+  const visibleSamples = samples.slice(boundedWindowStart, boundedWindowStart + VISIBLE_CHART_SAMPLES);
+  const values = visibleSamples
+    .map((sample) => sample[config.key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  const latestValue = values.length > 0 ? values[values.length - 1] : null;
+  const selectedSample = selectedIndex !== null ? visibleSamples[selectedIndex] : undefined;
+  const selectedValue = selectedSample?.[config.key];
+  const displayValue = typeof selectedValue === 'number' && Number.isFinite(selectedValue) ? selectedValue : latestValue;
+  const minValue = values.length > 0 ? Math.min(...values) : null;
+  const maxValue = values.length > 0 ? Math.max(...values) : null;
+  const chartMax = maxValue && maxValue > 0 ? maxValue : 1;
+  const displayColor = getHealthyColorForHistoryValue(config.key, displayValue, config.color);
+  const canPageOlder = boundedWindowStart > 0;
+  const canPageNewer = boundedWindowStart < latestWindowStart;
+
+  useEffect(() => {
+    setSelectedIndex(null);
+    setWindowStart(Math.max(samples.length - VISIBLE_CHART_SAMPLES, 0));
+  }, [config.key, samples.length]);
+
+  const showOlderWindow = () => {
+    setSelectedIndex(null);
+    setWindowStart((currentStart) => Math.max(currentStart - VISIBLE_CHART_SAMPLES, 0));
+  };
+
+  const showNewerWindow = () => {
+    setSelectedIndex(null);
+    setWindowStart((currentStart) => Math.min(currentStart + VISIBLE_CHART_SAMPLES, latestWindowStart));
+  };
+
+  const showWindow = (windowIndex: number) => {
+    setSelectedIndex(null);
+    setWindowStart(Math.min(windowIndex * VISIBLE_CHART_SAMPLES, latestWindowStart));
+  };
+
+  return (
+    <View style={styles.historyChartCard}>
+      <View style={styles.historyChartHeader}>
+        <View>
+          <Text style={styles.historyChartLabel}>{config.label}</Text>
+          <Text style={[styles.historyChartValue, { color: displayColor }]}> 
+            {formatMetricNumber(displayValue, config.precision)}<Text style={styles.unit}> {config.unit}</Text>
+          </Text>
+        </View>
+        <View style={styles.historyChartMeta}>
+          <Text style={styles.historyChartRange}>
+            {formatMetricNumber(minValue, config.precision)}-{formatMetricNumber(maxValue, config.precision)}
+          </Text>
+          <Text style={styles.historySelectedTime}>
+            {formatHistoryTime(selectedSample?.fetched_at ?? visibleSamples[visibleSamples.length - 1]?.fetched_at)}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.chartPlot}>
+        {visibleSamples.length === 0 ? (
+          <Text style={styles.emptyHistoryText}>NO HISTORY</Text>
+        ) : (
+          visibleSamples.map((sample, index) => {
+            const value = sample[config.key];
+            const barHeight: `${number}%` = typeof value === 'number' && Number.isFinite(value)
+              ? `${Math.max(2, Math.round((value / chartMax) * 100))}%`
+              : '2%';
+            const isSelected = selectedIndex === index;
+            const barColor = getHealthyColorForHistoryValue(config.key, value, config.color);
+
+            return (
+              <TouchableOpacity
+                key={`${sample.fetched_at}-${config.key}-${index}`}
+                activeOpacity={0.75}
+                onPress={() => setSelectedIndex((currentIndex) => currentIndex === index ? null : index)}
+                style={[
+                  styles.chartBar,
+                  {
+                    height: barHeight,
+                    backgroundColor: barColor,
+                    opacity: typeof value === 'number' ? (isSelected ? 1 : 0.78) : 0.35,
+                    borderColor: isSelected ? '#ffffff' : 'transparent',
+                  },
+                ]}
+              />
+            );
+          })
+        )}
+      </View>
+
+      <View style={styles.historyTimeRow}>
+        <Text style={styles.historyTimeText}>{formatHistoryTime(visibleSamples[0]?.fetched_at)}</Text>
+        <Text style={styles.historyTimeText}>hour {currentWindow + 1}/{totalWindows}</Text>
+        <Text style={styles.historyTimeText}>{formatHistoryTime(visibleSamples[visibleSamples.length - 1]?.fetched_at)}</Text>
+      </View>
+
+      <View style={styles.historyNavigator}>
+        <TouchableOpacity
+          style={[styles.historyNavButton, !canPageOlder && styles.historyNavButtonDisabled]}
+          disabled={!canPageOlder}
+          onPress={showOlderWindow}
+        >
+          <Ionicons name="chevron-back" size={32} color={canPageOlder ? '#00ffcc' : '#333333'} />
+        </TouchableOpacity>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.historyScrollbarContent}
+          style={styles.historyScrollbar}
+        >
+          {Array.from({ length: totalWindows }).map((_, index) => {
+            const isActiveWindow = index === currentWindow;
+            return (
+              <TouchableOpacity
+                key={`history-window-${index}`}
+                style={[styles.historyScrollbarSegment, isActiveWindow && styles.historyScrollbarSegmentActive]}
+                onPress={() => showWindow(index)}
+              />
+            );
+          })}
+        </ScrollView>
+
+        <TouchableOpacity
+          style={[styles.historyNavButton, !canPageNewer && styles.historyNavButtonDisabled]}
+          disabled={!canPageNewer}
+          onPress={showNewerWindow}
+        >
+          <Ionicons name="chevron-forward" size={32} color={canPageNewer ? '#00ffcc' : '#333333'} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 export default function Index() {
   const [phantomState, setPhantomState] = useState<PhantomState>(DEFAULT_PHANTOM);
   const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics>(DEFAULT_SENSOR);
@@ -81,10 +338,16 @@ export default function Index() {
   const [initialFetching, setInitialFetching] = useState<boolean>(true);
   const [indoorMetrics, setIndoorMetrics] = useState<EnvironmentalSensor | null>(null);
   const [outdoorMetrics, setOutdoorMetrics] = useState<EnvironmentalSensor | null>(null);
+  const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
+  const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
 
   useEffect(() => {
     fetchState();
-    const interval = setInterval(fetchState, 10000);
+    fetchHistory();
+    const interval = setInterval(() => {
+      fetchState();
+      fetchHistory();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -102,6 +365,18 @@ export default function Index() {
       console.error("Failed to sync initial state:", err);
     } finally {
       setInitialFetching(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(`${API_URL}/history?limit=${HISTORY_LIMIT}`);
+      if (res.ok) {
+        const data: HistoryResponse = await res.json();
+        setHistorySamples(data.history ?? []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch sensor history:", err);
     }
   };
 
@@ -228,6 +503,12 @@ export default function Index() {
     return "#e74c3c";
   };
 
+  const openHistoryMetric = (metricKey: HistoryMetricKey) => {
+    setActiveHistoryMetric((currentMetric) => currentMetric === metricKey ? null : metricKey);
+  };
+
+  const activeHistoryConfig = activeHistoryMetric ? getHistoryChartConfig(activeHistoryMetric) : null;
+
   if (initialFetching) {
     return (
       <SafeAreaView style={styles.container}>
@@ -264,54 +545,78 @@ export default function Index() {
           </View>
 
           <View style={styles.metricsGrid}>
-            <View style={styles.metricItem}>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'co2_ppm' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('co2_ppm')}
+            >
               <Text style={styles.metricLabel}>CO2</Text>
               <Text style={[styles.metricValue, { color: getCO2Color(sensorMetrics.co2_ppm) }]}>
                 {sensorMetrics.co2_ppm}<Text style={styles.unit}> ppm</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'temperature_c' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('temperature_c')}
+            >
               <Text style={styles.metricLabel}>TEMP</Text>
               <Text style={[styles.metricValue, { color: getTempColor(sensorMetrics.temperature_c) }]}>
                 {sensorMetrics.temperature_c}<Text style={styles.unit}> °C</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'humidity_pct' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('humidity_pct')}
+            >
               <Text style={styles.metricLabel}>HUMIDITY</Text>
               <Text style={[styles.metricValue, { color: getHumidityColor(sensorMetrics.humidity_pct) }]}>
                 {sensorMetrics.humidity_pct}<Text style={styles.unit}> %</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'pm1_ugm3' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('pm1_ugm3')}
+            >
               <Text style={styles.metricLabel}>PM1.0</Text>
               <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm1_ugm3) }]}>
                 {sensorMetrics.pm1_ugm3}<Text style={styles.unit}> µg/m³</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'pm25_ugm3' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('pm25_ugm3')}
+            >
               <Text style={styles.metricLabel}>PM2.5</Text>
               <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm25_ugm3) }]}>
                 {sensorMetrics.pm25_ugm3}<Text style={styles.unit}> µg/m³</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'pm10_ugm3' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('pm10_ugm3')}
+            >
               <Text style={styles.metricLabel}>PM10</Text>
               <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm10_ugm3) }]}>
                 {sensorMetrics.pm10_ugm3}<Text style={styles.unit}> µg/m³</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'voc_mgm3' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('voc_mgm3')}
+            >
               <Text style={styles.metricLabel}>TVOC</Text>
               <Text style={[styles.metricValue, { color: getTVOCColor(sensorMetrics.voc_mgm3) }]}>
                 {sensorMetrics.voc_mgm3}<Text style={styles.unit}> mg/m³</Text>
               </Text>
-            </View>
-            <View style={styles.metricItem}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.metricItem, activeHistoryMetric === 'ch2o_mgm3' && styles.metricItemActive]}
+              onPress={() => openHistoryMetric('ch2o_mgm3')}
+            >
               <Text style={styles.metricLabel}>HCHO</Text>
               <Text style={[styles.metricValue, { color: getFormaldehyteColor(sensorMetrics.ch2o_mgm3) }]}>
                 {sensorMetrics.ch2o_mgm3}<Text style={styles.unit}> mg/m³</Text>
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -336,20 +641,26 @@ export default function Index() {
               </View>
             </View>
             <View style={styles.zigbeeMetricsRow}>
-              <View style={styles.zigbeeMetric}>
+              <TouchableOpacity
+                style={[styles.zigbeeMetric, activeHistoryMetric === 'indoor_temperature_c' && styles.metricItemActive]}
+                onPress={() => openHistoryMetric('indoor_temperature_c')}
+              >
                 <Text style={styles.metricLabel}>TEMP</Text>
                 <Text style={[styles.metricValue, { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }]}>
                   {indoorMetrics?.temperature_c !== undefined ? indoorMetrics.temperature_c : '--'}
                   <Text style={styles.unit}> °C</Text>
                 </Text>
-              </View>
-              <View style={styles.zigbeeMetric}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.zigbeeMetric, activeHistoryMetric === 'indoor_humidity_pct' && styles.metricItemActive]}
+                onPress={() => openHistoryMetric('indoor_humidity_pct')}
+              >
                 <Text style={styles.metricLabel}>HUM</Text>
                 <Text style={[styles.metricValue, { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }]}>
                   {indoorMetrics?.humidity_pct !== undefined ? indoorMetrics.humidity_pct : '--'}
                   <Text style={styles.unit}> %</Text>
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -372,20 +683,26 @@ export default function Index() {
               </View>
             </View>
             <View style={styles.zigbeeMetricsRow}>
-              <View style={styles.zigbeeMetric}>
+              <TouchableOpacity
+                style={[styles.zigbeeMetric, activeHistoryMetric === 'outdoor_temperature_c' && styles.metricItemActive]}
+                onPress={() => openHistoryMetric('outdoor_temperature_c')}
+              >
                 <Text style={styles.metricLabel}>TEMP</Text>
                 <Text style={[styles.metricValue, { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }]}>
                   {outdoorMetrics?.temperature_c !== undefined ? outdoorMetrics.temperature_c : '--'}
                   <Text style={styles.unit}> °C</Text>
                 </Text>
-              </View>
-              <View style={styles.zigbeeMetric}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.zigbeeMetric, activeHistoryMetric === 'outdoor_humidity_pct' && styles.metricItemActive]}
+                onPress={() => openHistoryMetric('outdoor_humidity_pct')}
+              >
                 <Text style={styles.metricLabel}>HUM</Text>
                 <Text style={[styles.metricValue, { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }]}>
                   {outdoorMetrics?.humidity_pct !== undefined ? outdoorMetrics.humidity_pct : '--'}
                   <Text style={styles.unit}> %</Text>
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -516,6 +833,31 @@ export default function Index() {
           })}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={activeHistoryConfig !== null}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={() => setActiveHistoryMetric(null)}
+      >
+        {activeHistoryConfig && (
+          <SafeAreaView style={styles.historyModalScreen}>
+            <View style={styles.historyModalCard}>
+              <View style={styles.cardHeader}>
+                <View style={styles.indicatorBlock}>
+                  <MaterialCommunityIcons name="chart-bar" size={22} color="#00ffcc" />
+                  <Text style={styles.cardHeaderTitle}>{activeHistoryConfig.label} HISTORY</Text>
+                </View>
+                <TouchableOpacity style={styles.historyCloseButton} onPress={() => setActiveHistoryMetric(null)}>
+                  <Ionicons name="close" size={16} color="#8e9aaf" />
+                </TouchableOpacity>
+              </View>
+              <MiniHistoryChart config={activeHistoryConfig} samples={historySamples} />
+              <Text style={styles.historyFootnote}>{historySamples.length} stored minutes · latest {VISIBLE_CHART_SAMPLES} min shown</Text>
+            </View>
+          </SafeAreaView>
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -555,10 +897,138 @@ const styles = StyleSheet.create({
     width: '23%',
     paddingVertical: 4,
     alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  metricItemActive: {
+    borderColor: '#00ffcc',
+    backgroundColor: '#001a14',
   },
   metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
   metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
   unit: { fontSize: 8, color: '#6c757d' },
+
+  // --- HISTORY CHARTS ---
+  historyModalScreen: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  historyModalCard: {
+    width: '90%',
+    flex: 1,
+    backgroundColor: '#000000',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#222222',
+  },
+  historyChartCard: {
+    width: '100%',
+    flex: 1,
+    backgroundColor: '#050505',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    padding: 10,
+  },
+  historyChartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  historyChartLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
+  historyChartValue: { fontSize: 14, fontWeight: 'bold', fontFamily: 'monospace' },
+  historyChartMeta: { alignItems: 'flex-end' },
+  historyChartRange: { color: '#6c757d', fontSize: 9, fontFamily: 'monospace' },
+  historySelectedTime: { color: '#8e9aaf', fontSize: 9, fontFamily: 'monospace', marginTop: 2 },
+  chartPlot: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#222222',
+    overflow: 'hidden',
+  },
+  chartBar: {
+    flex: 1,
+    minWidth: 1,
+    borderWidth: 1,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+  },
+  emptyHistoryText: {
+    color: '#333333',
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    width: '100%',
+    marginBottom: 28,
+  },
+  historyTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 5,
+  },
+  historyTimeText: { color: '#444444', fontSize: 8, fontFamily: 'monospace' },
+  historyNavigator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
+  historyNavButton: {
+    width: 58,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#222222',
+  },
+  historyNavButtonDisabled: {
+    opacity: 0.55,
+  },
+  historyScrollbar: {
+    flex: 1,
+    height: 48,
+  },
+  historyScrollbarContent: {
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 2,
+  },
+  historyScrollbarSegment: {
+    width: 18,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#222222',
+  },
+  historyScrollbarSegmentActive: {
+    width: 28,
+    backgroundColor: '#00ffcc',
+  },
+  historyCloseButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#222222',
+  },
+  historyFootnote: {
+    color: '#6c757d',
+    fontSize: 9,
+    fontFamily: 'monospace',
+    marginTop: 8,
+    textAlign: 'center',
+  },
 
   // --- ZIGBEE STYLES ---
   zigbeeContainer: {
@@ -604,6 +1074,11 @@ const styles = StyleSheet.create({
   },
   zigbeeMetric: {
     alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
 
   // --- LCD STYLES ---
