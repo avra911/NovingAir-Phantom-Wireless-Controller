@@ -7,7 +7,8 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  Modal
+  Modal,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -32,12 +33,42 @@ const PHANTOM_GLYPHS = {
 
 type PhantomGlyphName = keyof typeof PHANTOM_GLYPHS;
 
-function PhantomGlyph({ name, size = 54, color = '#00ffcc' }: {
+function PhantomGlyph({ name, size = 54, color = '#00ffcc', outline = false }: {
   name: PhantomGlyphName;
   size?: number;
   color?: string;
+  outline?: boolean;
 }) {
-  return <Text style={{ color, fontFamily: 'Phantom', fontSize: size, lineHeight: size }}>{PHANTOM_GLYPHS[name]}</Text>;
+  const glyph = PHANTOM_GLYPHS[name];
+  const baseStyle = {
+    fontFamily: 'Phantom' as const,
+    fontSize: size,
+    lineHeight: size,
+  };
+
+  return (
+    <Text
+      style={[
+        baseStyle,
+        outline
+          ? Platform.OS === 'web'
+            ? ({
+                color: 'transparent',
+                WebkitTextStrokeWidth: 1,
+                WebkitTextStrokeColor: color,
+              } as any)
+            : {
+                color: 'transparent',
+                textShadowColor: color,
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 1,
+              }
+          : { color },
+      ]}
+    >
+      {glyph}
+    </Text>
+  );
 }
 
 function PhantomLevelGlyphs({ name, level, color }: {
@@ -48,8 +79,14 @@ function PhantomLevelGlyphs({ name, level, color }: {
   const boundedLevel = Math.max(1, Math.min(3, level));
   return (
     <View style={styles.phantomLevelIcons}>
-      {Array.from({ length: boundedLevel }, (_, index) => (
-        <PhantomGlyph key={`${name}-${index}`} name={name} size={14 + index * 4} color={color} />
+      {Array.from({ length: 3 }, (_, index) => (
+        <PhantomGlyph
+          key={`${name}-${index}`}
+          name={name}
+          size={14 + index * 4}
+          color={color}
+          outline={index >= boundedLevel}
+        />
       ))}
     </View>
   );
@@ -449,12 +486,6 @@ export default function Index() {
   };
 
   const buttons = [
-    { label: "BOOST", key: "BOOST", color: "#e74c3c", icon: "rocket-outline" },
-    { label: "NIGHT", key: "NIGHT", color: "#2c3e50", icon: "moon-outline" },
-    { label: "SPEED", key: "SPEED", color: "#2980b9", icon: "speedometer-outline" },
-    { label: "MODE", key: "MODE", color: "#27ae60", icon: "options-outline" },
-    { label: "FLUX", key: "FLUX", color: "#8e44ad", icon: "swap-horizontal-outline" },
-    { label: "HUMIDITY", key: "HUMIDITY", color: "#d35400", icon: "water-outline" },
     {
       label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)",
       key: "TOGGLE_AUTO",
@@ -469,7 +500,7 @@ export default function Index() {
       case 'AUTO': return 'auto';
       case 'SLEEP': return 'monitor';
       case 'MANUAL': return 'manual';
-      default: return null;
+      default: return 'auto';
     }
   };
 
@@ -479,7 +510,7 @@ export default function Index() {
       case 'SOUTH_NORTH': return 'slave_master';
       case 'INTAKE': return 'insert';
       case 'EXTRACT': return 'evac';
-      default: return null;
+      default: return 'master_slave';
     }
   };
 
@@ -570,6 +601,10 @@ export default function Index() {
   };
 
   const activeHistoryConfig = activeHistoryMetric ? getHistoryChartConfig(activeHistoryMetric) : null;
+  const speedControlEnabled = !phantomState.automation_enabled
+    && (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE');
+  const humidityControlEnabled = !phantomState.automation_enabled
+    && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
 
   if (!fontsLoaded || initialFetching) {
     return (
@@ -774,71 +809,101 @@ export default function Index() {
           <Text style={styles.lcdHeaderTitle}>PHANTOM UNIT STATUS</Text>
 
           <View style={styles.lcdRow}>
-            <View style={[styles.statusBox, phantomState.mode !== 'NONE' && styles.statusBoxHighlighted]}>
+            <TouchableOpacity
+              style={[
+                styles.statusBox,
+                phantomState.mode === 'NONE' && styles.statusBoxDisabled,
+                phantomState.mode !== 'NONE' && styles.statusBoxHighlighted,
+              ]}
+              onPress={() => sendCommand('MODE')}
+              disabled={loading !== null || phantomState.automation_enabled}
+              accessibilityRole="button"
+              accessibilityLabel="Mode"
+            >
               {getModeGlyph(phantomState.mode) ? (
-                <PhantomGlyph name={getModeGlyph(phantomState.mode)!} color="#00ffcc" />
+                <PhantomGlyph
+                  name={getModeGlyph(phantomState.mode)!}
+                  color={phantomState.mode === 'NONE' ? '#444' : '#00ffcc'}
+                />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <View>
-                <Text style={[styles.statusBoxLabel, phantomState.mode === 'NONE' && styles.disabledTextLabel]}>MODE</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
 
-            <View style={[
-              styles.statusBox, 
+            <TouchableOpacity
+              style={[
+              styles.statusBox,
+              !speedControlEnabled && styles.statusBoxDisabled,
               (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.statusBoxHighlighted
-            ]}>
+              ]}
+              onPress={() => sendCommand('SPEED')}
+              disabled={loading !== null || !speedControlEnabled}
+              accessibilityRole="button"
+              accessibilityLabel="Speed"
+            >
               <PhantomLevelGlyphs
                 name="fan"
                 level={phantomState.speed}
                 color={(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') ? "#00ffcc" : "#444"}
               />
-              <View>
-                <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.disabledTextLabel]}>SPEED</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
 
-            <View style={[
-              styles.statusBox, 
+            <TouchableOpacity
+              style={[
+              styles.statusBox,
+              !humidityControlEnabled && styles.statusBoxDisabled,
               (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.statusBoxHighlighted
-            ]}>
+              ]}
+              onPress={() => sendCommand('HUMIDITY')}
+              disabled={loading !== null || !humidityControlEnabled}
+              accessibilityRole="button"
+              accessibilityLabel="Humidity target"
+            >
               <PhantomLevelGlyphs
                 name="humidity"
                 level={phantomState.humidity}
                 color={(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') ? "#00ffcc" : "#444"}
               />
-              <View>
-                <Text style={[styles.statusBoxLabel, !(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.disabledTextLabel]}>HUM TARGET</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.lcdRow}>
-            <View style={[styles.statusBox, phantomState.flux !== 'NONE' && styles.statusBoxHighlighted]}>
+            <TouchableOpacity
+              style={[styles.statusBox, phantomState.flux !== 'NONE' && styles.statusBoxHighlighted]}
+              onPress={() => sendCommand('FLUX')}
+              disabled={loading !== null || phantomState.automation_enabled}
+              accessibilityRole="button"
+              accessibilityLabel="Air flow"
+            >
               {getFluxGlyph(phantomState.flux) ? (
-                <PhantomGlyph name={getFluxGlyph(phantomState.flux)!} color="#00ffcc" />
+                <PhantomGlyph
+                  name={getFluxGlyph(phantomState.flux)!}
+                  color={phantomState.flux === 'NONE' ? '#444' : '#00ffcc'}
+                />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <View>
-                <Text style={[styles.statusBoxLabel, phantomState.flux === 'NONE' && styles.disabledTextLabel]}>FLUX</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
 
-            <View style={[styles.statusBox, phantomState.night && styles.statusBoxHighlighted]}>
+            <TouchableOpacity
+              style={[styles.statusBox, phantomState.night && styles.statusBoxHighlighted]}
+              onPress={() => sendCommand('NIGHT')}
+              disabled={loading !== null || phantomState.automation_enabled}
+              accessibilityRole="button"
+              accessibilityLabel="Night mode"
+            >
               <PhantomGlyph name="night" color={phantomState.night ? "#00ffcc" : "#444"} />
-              <View>
-                <Text style={[styles.statusBoxLabel, !phantomState.night && styles.disabledTextLabel]}>NIGHT</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
 
-            <View style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}>
+            <TouchableOpacity
+              style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}
+              onPress={() => sendCommand('BOOST')}
+              disabled={loading !== null || phantomState.automation_enabled}
+              accessibilityRole="button"
+              accessibilityLabel="Boost"
+            >
               <PhantomGlyph name="temp_evac" color={phantomState.boost ? "#00ffcc" : "#444"} />
-              <View>
-                <Text style={[styles.statusBoxLabel, !phantomState.boost && styles.disabledTextLabel]}>BOOST</Text>
-              </View>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1137,7 +1202,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     opacity: 0.8,
   },
-  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 6 },
+  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 8 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
@@ -1145,17 +1210,18 @@ const styles = StyleSheet.create({
     borderColor: '#1f1f1f',
     borderWidth: 1,
     borderRadius: 8,
-    minHeight: 108,
-    paddingVertical: 10,
+    minHeight: 92,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     marginHorizontal: 3,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 0,
   },
   statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
-  phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 1 },
+  statusBoxDisabled: { opacity: 0.4 },
+  phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 2 },
   statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
@@ -1163,12 +1229,12 @@ const styles = StyleSheet.create({
   disabledTextLabel: { color: '#333333', opacity: 1 },
   
   // --- BUTTON GRID ---
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: '90%' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', width: '90%' },
   button: {
-    width: '42%',
-    height: 56,
-    margin: 6,
-    borderRadius: 14,
+    width: '48%',
+    height: 52,
+    marginBottom: 6,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',

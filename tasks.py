@@ -341,6 +341,10 @@ async def poll_air_sensor_task(
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
+            if state_dict.get("boost", False):
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
+
             co2_ppm = air_metrics_dict.get("co2_ppm", 400.0)
             night = _is_night()
 
@@ -387,7 +391,6 @@ async def poll_air_sensor_task(
             # 7. Persist & cleanup
             was_night = night
             if state_changed:
-                state_dict["boost"] = False
                 state_dict["night"] = False
                 save_state_func(state_dict)
 

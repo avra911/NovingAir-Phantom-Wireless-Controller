@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import asyncio
 import json
 import os
+import time
 
 import tinytuya
 from tinytuya.Contrib.IRRemoteControlDevice import IRRemoteControlDevice
@@ -33,6 +34,7 @@ app.add_middleware(
 
 STATE_FILE = "state.json"
 BUTTON_CODES_FILE = "phantom_ir.json"
+BOOST_DURATION_SECONDS = 20 * 60
 
 # ---------------------------------------------------------------------
 # Devices
@@ -125,6 +127,70 @@ def load_button_codes() -> dict:
 
 CURRENT_STATE = load_state()
 BUTTON_CODES = load_button_codes()
+boost_task: asyncio.Task | None = None
+
+
+def _boost_snapshot() -> dict:
+    return {
+        key: CURRENT_STATE.get(key)
+        for key in (
+            "mode",
+            "speed",
+            "humidity",
+            "flux",
+            "night",
+            "automation_enabled",
+        )
+    }
+
+
+def _restore_boost_state() -> None:
+    snapshot = CURRENT_STATE.pop("boost_previous_state", None)
+    if not isinstance(snapshot, dict):
+        snapshot = {
+            "mode": "AUTO",
+            "speed": 1,
+            "humidity": 3,
+            "flux": "NONE",
+            "night": False,
+            "automation_enabled": True,
+        }
+
+    send_ir_button("BOOST")
+    CURRENT_STATE.update(snapshot)
+    CURRENT_STATE["boost"] = False
+    CURRENT_STATE.pop("boost_expires_at", None)
+    save_state(CURRENT_STATE)
+
+
+async def _boost_timer(expires_at: float) -> None:
+    await asyncio.sleep(max(0, expires_at - time.time()))
+    if CURRENT_STATE.get("boost") and CURRENT_STATE.get("boost_expires_at") == expires_at:
+        _restore_boost_state()
+
+
+async def _start_boost() -> None:
+    global boost_task
+
+    snapshot = _boost_snapshot()
+    expires_at = time.time() + BOOST_DURATION_SECONDS
+    send_ir_button("BOOST")
+
+    CURRENT_STATE["boost_previous_state"] = snapshot
+    CURRENT_STATE["boost_expires_at"] = expires_at
+    CURRENT_STATE["boost"] = True
+    save_state(CURRENT_STATE)
+    boost_task = asyncio.create_task(_boost_timer(expires_at))
+
+
+async def _stop_boost() -> None:
+    global boost_task
+
+    if boost_task is not None:
+        boost_task.cancel()
+        boost_task = None
+    if CURRENT_STATE.get("boost"):
+        _restore_boost_state()
 
 # ---------------------------------------------------------------------
 # Startup
@@ -144,6 +210,9 @@ async def startup_event():
             air_history_db_path=AIR_HISTORY_DB,
         )
     )
+    if CURRENT_STATE.get("boost") and CURRENT_STATE.get("boost_expires_at"):
+        global boost_task
+        boost_task = asyncio.create_task(_boost_timer(CURRENT_STATE["boost_expires_at"]))
     print("[STARTUP] Air sensor automation started.")
 
 # ---------------------------------------------------------------------
@@ -208,12 +277,16 @@ async def command(action: str):
     action = action.upper()
 
     if action == "SPEED":
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         current_speed = CURRENT_STATE.get("speed", 3)
         new_speed = 1 if current_speed >= 3 else current_speed + 1
         send_ir_button(f"SPEED_{new_speed}")
         CURRENT_STATE["speed"] = new_speed
 
     elif action == "HUMIDITY":
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         current_humidity = CURRENT_STATE.get("humidity", 3)
         new_humidity = 1 if current_humidity >= 3 else current_humidity + 1
         send_ir_button(f"HUMIDITY_{new_humidity}")
@@ -224,12 +297,16 @@ async def command(action: str):
         current_mode = CURRENT_STATE.get("mode", "AUTO")
         idx = modes.index(current_mode) if current_mode in modes else -1
         new_mode = modes[(idx + 1) % len(modes)]
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         send_ir_button(f"MODE_{new_mode}")
         CURRENT_STATE["mode"] = new_mode
         CURRENT_STATE["flux"] = "NONE"
         CURRENT_STATE["boost"] = False
 
     elif action == "FLUX":
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
         current_flux = CURRENT_STATE.get("flux", "SOUTH_NORTH")
         idx = fluxes.index(current_flux) if current_flux in fluxes else -1
@@ -240,6 +317,8 @@ async def command(action: str):
         CURRENT_STATE["boost"] = False
 
     elif action == "NIGHT":
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         new_night = not CURRENT_STATE.get("night", False)
         send_ir_button("MODE_NIGHT")
         CURRENT_STATE["night"] = new_night
@@ -249,15 +328,28 @@ async def command(action: str):
             CURRENT_STATE["boost"] = False
 
     elif action == "BOOST":
-        new_boost = not CURRENT_STATE.get("boost", False)
-        send_ir_button("BOOST")
-        CURRENT_STATE["boost"] = new_boost
-        if new_boost:
-            CURRENT_STATE["mode"] = "NONE"
-            CURRENT_STATE["flux"] = "NONE"
-            CURRENT_STATE["night"] = False
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
+        else:
+            await _start_boost()
+        return {
+            "phantom": CURRENT_STATE,
+            "sensor": AIR_METRICS,
+            "indoor": {
+                "temperature_c": AIR_METRICS.get("indoor_temperature_c"),
+                "humidity_pct": AIR_METRICS.get("indoor_humidity_pct"),
+                "battery": AIR_METRICS.get("indoor_battery"),
+            },
+            "outdoor": {
+                "temperature_c": AIR_METRICS.get("outdoor_temperature_c"),
+                "humidity_pct": AIR_METRICS.get("outdoor_humidity_pct"),
+                "battery": AIR_METRICS.get("outdoor_battery"),
+            },
+        }
 
     elif action == "TOGGLE_AUTO":
+        if CURRENT_STATE.get("boost"):
+            await _stop_boost()
         new_state = not CURRENT_STATE.get("automation_enabled", True)
         CURRENT_STATE["automation_enabled"] = new_state
         if not new_state:
