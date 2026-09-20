@@ -32,7 +32,7 @@ const PHANTOM_GLYPHS = {
 
 type PhantomGlyphName = keyof typeof PHANTOM_GLYPHS;
 
-function PhantomGlyph({ name, size = 72, color = '#00ffcc' }: {
+function PhantomGlyph({ name, size = 54, color = '#00ffcc' }: {
   name: PhantomGlyphName;
   size?: number;
   color?: string;
