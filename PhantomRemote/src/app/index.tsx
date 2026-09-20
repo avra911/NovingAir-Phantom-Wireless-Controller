@@ -418,6 +418,7 @@ export default function Index() {
   const [outdoorMetrics, setOutdoorMetrics] = useState<EnvironmentalSensor | null>(null);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
+  const [controlsLocked, setControlsLocked] = useState(true);
   const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
 
   useEffect(() => {
@@ -429,6 +430,13 @@ export default function Index() {
     }, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (controlsLocked) return;
+
+    const relockTimeout = setTimeout(() => setControlsLocked(true), 60000);
+    return () => clearTimeout(relockTimeout);
+  }, [controlsLocked]);
 
   const fetchState = async () => {
     try {
@@ -493,6 +501,7 @@ export default function Index() {
       icon: "hardware-chip-outline"
     },
     { label: "RESET", key: "RESET", color: "#4a5568", icon: "refresh-outline" },
+    { label: controlsLocked ? "UNLOCK" : "LOCK", key: "TOGGLE_LOCK", color: controlsLocked ? "#27ae60" : "#333333", icon: "key-outline" },
   ];
 
   const getModeGlyph = (mode: PhantomState['mode']): PhantomGlyphName | null => {
@@ -605,6 +614,8 @@ export default function Index() {
     && (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE');
   const humidityControlEnabled = !phantomState.automation_enabled
     && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
+  const speedStatusActive = phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE';
+  const humidityStatusActive = phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP';
 
   if (!fontsLoaded || initialFetching) {
     return (
@@ -814,9 +825,10 @@ export default function Index() {
                 styles.statusBox,
                 phantomState.mode === 'NONE' && styles.statusBoxDisabled,
                 phantomState.mode !== 'NONE' && styles.statusBoxHighlighted,
+                controlsLocked && phantomState.mode !== 'NONE' && styles.statusBoxDisabled,
               ]}
               onPress={() => sendCommand('MODE')}
-              disabled={loading !== null || phantomState.automation_enabled}
+              disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Mode"
             >
@@ -833,11 +845,12 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              !speedControlEnabled && styles.statusBoxDisabled,
-              (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') && styles.statusBoxHighlighted
+              !speedStatusActive && styles.statusBoxDisabled,
+              speedStatusActive && styles.statusBoxHighlighted,
+              controlsLocked && speedStatusActive && styles.statusBoxDisabled
               ]}
               onPress={() => sendCommand('SPEED')}
-              disabled={loading !== null || !speedControlEnabled}
+              disabled={loading !== null || controlsLocked || !speedControlEnabled}
               accessibilityRole="button"
               accessibilityLabel="Speed"
             >
@@ -851,11 +864,12 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              !humidityControlEnabled && styles.statusBoxDisabled,
-              (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') && styles.statusBoxHighlighted
+              !humidityStatusActive && styles.statusBoxDisabled,
+              humidityStatusActive && styles.statusBoxHighlighted,
+              controlsLocked && humidityStatusActive && styles.statusBoxDisabled
               ]}
               onPress={() => sendCommand('HUMIDITY')}
-              disabled={loading !== null || !humidityControlEnabled}
+              disabled={loading !== null || controlsLocked || !humidityControlEnabled}
               accessibilityRole="button"
               accessibilityLabel="Humidity target"
             >
@@ -869,9 +883,13 @@ export default function Index() {
 
           <View style={styles.lcdRow}>
             <TouchableOpacity
-              style={[styles.statusBox, phantomState.flux !== 'NONE' && styles.statusBoxHighlighted]}
+              style={[
+                styles.statusBox,
+                phantomState.flux !== 'NONE' && styles.statusBoxHighlighted,
+                controlsLocked && phantomState.flux !== 'NONE' && styles.statusBoxDisabled,
+              ]}
               onPress={() => sendCommand('FLUX')}
-              disabled={loading !== null || phantomState.automation_enabled}
+              disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Air flow"
             >
@@ -886,9 +904,13 @@ export default function Index() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.statusBox, phantomState.night && styles.statusBoxHighlighted]}
+              style={[
+                styles.statusBox,
+                phantomState.night && styles.statusBoxHighlighted,
+                controlsLocked && phantomState.night && styles.statusBoxDisabled,
+              ]}
               onPress={() => sendCommand('NIGHT')}
-              disabled={loading !== null || phantomState.automation_enabled}
+              disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Night mode"
             >
@@ -896,43 +918,60 @@ export default function Index() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.statusBox, phantomState.boost && styles.statusBoxHighlighted]}
+              style={[
+                styles.statusBox,
+                phantomState.boost && styles.statusBoxHighlighted,
+                controlsLocked && phantomState.boost && styles.statusBoxDisabled,
+              ]}
               onPress={() => sendCommand('BOOST')}
-              disabled={loading !== null || phantomState.automation_enabled}
+              disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Boost"
             >
               <PhantomGlyph name="temp_evac" color={phantomState.boost ? "#00ffcc" : "#444"} />
             </TouchableOpacity>
           </View>
-        </View>
 
-        {/* --- REMOTE CONTROL BUTTONS --- */}
-        <View style={styles.grid}>
-          {buttons.map((btn) => {
-            const isDisabled = loading !== null || (phantomState.automation_enabled && btn.key !== "TOGGLE_AUTO");
-            return (
-              <TouchableOpacity
-                key={btn.key}
-                style={[styles.button, { backgroundColor: btn.color }, isDisabled && styles.disabledButton]}
-                onPress={() => sendCommand(btn.key)}
-                disabled={isDisabled}
-              >
-                {loading === btn.key ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    {getButtonPhantomGlyph(btn.key) ? (
-                      <PhantomGlyph name={getButtonPhantomGlyph(btn.key)!} size={24} color="#fff" />
-                    ) : (
-                      <Ionicons name={btn.icon as any} size={20} color="#fff" />
-                    )}
-                    <Text style={styles.btnText}>{btn.label}</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+          <View style={styles.lcdRow}>
+            {buttons.map((btn) => {
+              const isDisabled = loading !== null
+                || (controlsLocked && btn.key !== "TOGGLE_LOCK")
+                || (phantomState.automation_enabled
+                  && btn.key !== "TOGGLE_AUTO"
+                  && btn.key !== "RESET"
+                  && btn.key !== "TOGGLE_LOCK");
+              const isVisuallyDisabled = isDisabled
+                || (!controlsLocked && btn.key === "TOGGLE_LOCK");
+              return (
+                <TouchableOpacity
+                  key={btn.key}
+                  style={[
+                    styles.statusBox,
+                    { flex: 1, width: 0 },
+                    btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled && styles.statusBoxHighlighted,
+                    isVisuallyDisabled && styles.statusBoxDisabled,
+                  ]}
+                  onPress={() => btn.key === "TOGGLE_LOCK"
+                    ? setControlsLocked((locked) => !locked)
+                    : sendCommand(btn.key)}
+                  disabled={isDisabled}
+                  accessibilityRole="button"
+                  accessibilityLabel={btn.label}
+                >
+                  {loading === btn.key ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name={btn.icon as any} size={18} color="#00ffcc" />
+                      {btn.key !== "TOGGLE_LOCK" && (
+                        <Text style={styles.statusBoxLabel}>{btn.label}</Text>
+                      )}
+                    </>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
       </ScrollView>
 
