@@ -197,7 +197,7 @@ const DEFAULT_SENSOR: SensorMetrics = {
   online: false,
 };
 
-const HISTORY_LIMIT = 30 * 24 * 60;
+const HISTORY_LIMIT = 24 * 60;
 const VISIBLE_CHART_SAMPLES = 60;
 
 const HISTORY_CHARTS: HistoryChartConfig[] = [
@@ -1263,7 +1263,7 @@ const styles = StyleSheet.create({
   lcdScreen: {
     width: '90%',
     backgroundColor: '#000000',
-    borderColor: '#00ffcc',
+    borderColor: 'rgba(0, 255, 204, 0.4)',
     borderWidth: 1.5,
     borderRadius: 16,
     padding: 16,

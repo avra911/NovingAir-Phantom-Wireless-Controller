@@ -257,7 +257,7 @@ async def get_state():
     }
 
 @app.get("/history")
-async def get_history(limit: int = Query(default=43200, ge=1, le=43200)):
+async def get_history(limit: int = Query(default=1440, ge=1, le=1440)):
     return {
         "history": get_air_metrics_history(AIR_HISTORY_DB, limit),
     }

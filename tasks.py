@@ -210,7 +210,7 @@ def get_air_metrics_history(db_path: str, limit: int = 180) -> list[dict]:
     if not os.path.exists(db_path):
         return []
 
-    safe_limit = max(1, min(limit, 43200))
+    safe_limit = max(1, min(limit, 1440))
 
     try:
         with sqlite3.connect(db_path) as conn:
