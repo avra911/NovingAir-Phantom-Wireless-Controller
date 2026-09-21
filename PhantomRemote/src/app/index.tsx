@@ -829,7 +829,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.mode !== 'NONE' && styles.statusBoxHighlighted,
+                phantomState.mode !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                  ? styles.statusBoxAutoHighlighted
+                  : styles.statusBoxHighlighted),
                 (phantomState.mode === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
                 phantomState.mode === 'NONE' && styles.statusBoxDisabledBorder,
               ]}
@@ -851,7 +853,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              speedStatusActive && styles.statusBoxHighlighted,
+              speedStatusActive && (phantomState.automation_enabled && !controlsLocked
+                ? styles.statusBoxAutoHighlighted
+                : styles.statusBoxHighlighted),
               (!speedStatusActive || controlsLocked) && styles.statusBoxDisabled,
               !speedStatusActive && styles.statusBoxDisabledBorder,
               ]}
@@ -870,7 +874,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              humidityStatusActive && styles.statusBoxHighlighted,
+              humidityStatusActive && (phantomState.automation_enabled && !controlsLocked
+                ? styles.statusBoxAutoHighlighted
+                : styles.statusBoxHighlighted),
               (!humidityStatusActive || controlsLocked) && styles.statusBoxDisabled,
               !humidityStatusActive && styles.statusBoxDisabledBorder,
               ]}
@@ -891,7 +897,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.flux !== 'NONE' && styles.statusBoxHighlighted,
+                phantomState.flux !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                  ? styles.statusBoxAutoHighlighted
+                  : styles.statusBoxHighlighted),
                 (phantomState.flux === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
                 phantomState.flux === 'NONE' && styles.statusBoxDisabledBorder,
               ]}
@@ -913,7 +921,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.night && styles.statusBoxHighlighted,
+                phantomState.night && (phantomState.automation_enabled && !controlsLocked
+                  ? styles.statusBoxAutoHighlighted
+                  : styles.statusBoxHighlighted),
                 (!phantomState.night || controlsLocked) && styles.statusBoxDisabled,
                 !phantomState.night && styles.statusBoxDisabledBorder,
               ]}
@@ -928,7 +938,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.boost && styles.statusBoxHighlighted,
+                phantomState.boost && (phantomState.automation_enabled && !controlsLocked
+                  ? styles.statusBoxAutoHighlighted
+                  : styles.statusBoxHighlighted),
                 (!phantomState.boost || controlsLocked) && styles.statusBoxDisabled,
                 !phantomState.boost && styles.statusBoxDisabledBorder,
               ]}
@@ -951,7 +963,8 @@ export default function Index() {
                   && btn.key !== "TOGGLE_LOCK");
               const isVisuallyDisabled = isDisabled
                 || (!controlsLocked && btn.key === "TOGGLE_LOCK")
-                || btn.key === "RESET";
+                || btn.key === "RESET"
+                || (btn.key === "TOGGLE_AUTO" && !phantomState.automation_enabled);
               const isSelected = (btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled)
                 || (btn.key === "TOGGLE_LOCK" && controlsLocked);
               return (
@@ -960,9 +973,14 @@ export default function Index() {
                   style={[
                     styles.statusBox,
                     { flex: 1, width: 0 },
-                    isSelected && styles.statusBoxHighlighted,
+                    isSelected && btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled && !controlsLocked
+                      ? styles.statusBoxHighlighted
+                      : isSelected && (phantomState.automation_enabled && !controlsLocked
+                      ? styles.statusBoxAutoHighlighted
+                      : styles.statusBoxHighlighted),
                     isVisuallyDisabled && !isSelected && styles.statusBoxDisabledBorder,
                     isVisuallyDisabled && styles.statusBoxDisabled,
+                    btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled && !controlsLocked && { opacity: 1 },
                   ]}
                   onPress={() => btn.key === "TOGGLE_LOCK"
                     ? setControlsLocked((locked) => !locked)
@@ -981,7 +999,9 @@ export default function Index() {
                         color={!isDisabled ? '#00ffcc' : '#444'}
                       />
                       {btn.key !== "TOGGLE_LOCK" && (
-                        <Text style={styles.statusBoxLabel}>{btn.label}</Text>
+                        <Text style={[styles.statusBoxLabel, controlsLocked && styles.statusBoxLabelDisabled]}>
+                          {btn.label}
+                        </Text>
                       )}
                     </>
                   )}
@@ -1276,10 +1296,12 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
+  statusBoxAutoHighlighted: { borderColor: '#00665a', backgroundColor: '#000a08' },
   statusBoxDisabledBorder: { borderColor: '#1f1f1f', backgroundColor: '#000000' },
   statusBoxDisabled: { opacity: 0.4 },
   phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 2 },
   statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
+  statusBoxLabelDisabled: { color: '#444' },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
   disabledText: { color: '#333333' },
