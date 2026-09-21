@@ -616,6 +616,12 @@ export default function Index() {
     && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
   const speedStatusActive = phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE';
   const humidityStatusActive = phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP';
+  const modeClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
+  const speedClickable = loading === null && !controlsLocked && speedControlEnabled;
+  const humidityClickable = loading === null && !controlsLocked && humidityControlEnabled;
+  const fluxClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
+  const nightClickable = fluxClickable;
+  const boostClickable = fluxClickable;
 
   if (!fontsLoaded || initialFetching) {
     return (
@@ -823,9 +829,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.mode === 'NONE' && styles.statusBoxDisabled,
                 phantomState.mode !== 'NONE' && styles.statusBoxHighlighted,
-                controlsLocked && phantomState.mode !== 'NONE' && styles.statusBoxDisabled,
+                (phantomState.mode === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
+                phantomState.mode === 'NONE' && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('MODE')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
@@ -835,7 +841,7 @@ export default function Index() {
               {getModeGlyph(phantomState.mode) ? (
                 <PhantomGlyph
                   name={getModeGlyph(phantomState.mode)!}
-                  color={phantomState.mode === 'NONE' ? '#444' : '#00ffcc'}
+                  color={modeClickable ? '#00ffcc' : '#444'}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
@@ -845,9 +851,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              !speedStatusActive && styles.statusBoxDisabled,
               speedStatusActive && styles.statusBoxHighlighted,
-              controlsLocked && speedStatusActive && styles.statusBoxDisabled
+              (!speedStatusActive || controlsLocked) && styles.statusBoxDisabled,
+              !speedStatusActive && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('SPEED')}
               disabled={loading !== null || controlsLocked || !speedControlEnabled}
@@ -857,16 +863,16 @@ export default function Index() {
               <PhantomLevelGlyphs
                 name="fan"
                 level={phantomState.speed}
-                color={(phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE') ? "#00ffcc" : "#444"}
+                color={speedClickable ? "#00ffcc" : "#444"}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
-              !humidityStatusActive && styles.statusBoxDisabled,
               humidityStatusActive && styles.statusBoxHighlighted,
-              controlsLocked && humidityStatusActive && styles.statusBoxDisabled
+              (!humidityStatusActive || controlsLocked) && styles.statusBoxDisabled,
+              !humidityStatusActive && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('HUMIDITY')}
               disabled={loading !== null || controlsLocked || !humidityControlEnabled}
@@ -876,7 +882,7 @@ export default function Index() {
               <PhantomLevelGlyphs
                 name="humidity"
                 level={phantomState.humidity}
-                color={(phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP') ? "#00ffcc" : "#444"}
+                color={humidityClickable ? "#00ffcc" : "#444"}
               />
             </TouchableOpacity>
           </View>
@@ -886,7 +892,8 @@ export default function Index() {
               style={[
                 styles.statusBox,
                 phantomState.flux !== 'NONE' && styles.statusBoxHighlighted,
-                controlsLocked && phantomState.flux !== 'NONE' && styles.statusBoxDisabled,
+                (phantomState.flux === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
+                phantomState.flux === 'NONE' && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('FLUX')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
@@ -896,7 +903,7 @@ export default function Index() {
               {getFluxGlyph(phantomState.flux) ? (
                 <PhantomGlyph
                   name={getFluxGlyph(phantomState.flux)!}
-                  color={phantomState.flux === 'NONE' ? '#444' : '#00ffcc'}
+                  color={fluxClickable ? '#00ffcc' : '#444'}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
@@ -907,28 +914,30 @@ export default function Index() {
               style={[
                 styles.statusBox,
                 phantomState.night && styles.statusBoxHighlighted,
-                controlsLocked && phantomState.night && styles.statusBoxDisabled,
+                (!phantomState.night || controlsLocked) && styles.statusBoxDisabled,
+                !phantomState.night && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('NIGHT')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Night mode"
             >
-              <PhantomGlyph name="night" color={phantomState.night ? "#00ffcc" : "#444"} />
+              <PhantomGlyph name="night" color={nightClickable ? "#00ffcc" : "#444"} />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.statusBox,
                 phantomState.boost && styles.statusBoxHighlighted,
-                controlsLocked && phantomState.boost && styles.statusBoxDisabled,
+                (!phantomState.boost || controlsLocked) && styles.statusBoxDisabled,
+                !phantomState.boost && styles.statusBoxDisabledBorder,
               ]}
               onPress={() => sendCommand('BOOST')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Boost"
             >
-              <PhantomGlyph name="temp_evac" color={phantomState.boost ? "#00ffcc" : "#444"} />
+              <PhantomGlyph name="temp_evac" color={boostClickable ? "#00ffcc" : "#444"} />
             </TouchableOpacity>
           </View>
 
@@ -941,14 +950,18 @@ export default function Index() {
                   && btn.key !== "RESET"
                   && btn.key !== "TOGGLE_LOCK");
               const isVisuallyDisabled = isDisabled
-                || (!controlsLocked && btn.key === "TOGGLE_LOCK");
+                || (!controlsLocked && btn.key === "TOGGLE_LOCK")
+                || btn.key === "RESET";
+              const isSelected = (btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled)
+                || (btn.key === "TOGGLE_LOCK" && controlsLocked);
               return (
                 <TouchableOpacity
                   key={btn.key}
                   style={[
                     styles.statusBox,
                     { flex: 1, width: 0 },
-                    btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled && styles.statusBoxHighlighted,
+                    isSelected && styles.statusBoxHighlighted,
+                    isVisuallyDisabled && !isSelected && styles.statusBoxDisabledBorder,
                     isVisuallyDisabled && styles.statusBoxDisabled,
                   ]}
                   onPress={() => btn.key === "TOGGLE_LOCK"
@@ -962,7 +975,11 @@ export default function Index() {
                     <ActivityIndicator color="#fff" />
                   ) : (
                     <>
-                      <Ionicons name={btn.icon as any} size={18} color="#00ffcc" />
+                      <Ionicons
+                        name={btn.icon as any}
+                        size={18}
+                        color={!isDisabled ? '#00ffcc' : '#444'}
+                      />
                       {btn.key !== "TOGGLE_LOCK" && (
                         <Text style={styles.statusBoxLabel}>{btn.label}</Text>
                       )}
@@ -1259,6 +1276,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
+  statusBoxDisabledBorder: { borderColor: '#1f1f1f', backgroundColor: '#000000' },
   statusBoxDisabled: { opacity: 0.4 },
   phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 2 },
   statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
