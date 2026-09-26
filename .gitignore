@@ -6,3 +6,6 @@ data/*
 logs/*
 !logs/empty
 state.json
+snapshot.json
+devices.json
+tuya-raw.json
