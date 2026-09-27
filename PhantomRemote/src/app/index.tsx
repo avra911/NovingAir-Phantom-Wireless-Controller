@@ -235,6 +235,27 @@ const formatHistoryTime = (isoValue?: string) => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const formatAutomationLogLine = (line: string) => {
+  const match = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(\s+.*)$/);
+  if (!match) return line;
+
+  const utcDate = new Date(`${match[1].replace(' ', 'T')}Z`);
+  if (Number.isNaN(utcDate.getTime())) return line;
+
+  const bucharestTimestamp = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Bucharest',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(utcDate);
+
+  return `${bucharestTimestamp}${match[2]}`;
+};
+
 const getCO2Status = (ppm: number) => {
   if (ppm < 800) return { label: 'Air feels fresh', detail: 'Good for everyday living', color: OledColors.mint };
   if (ppm < 1200) return { label: 'Worth ventilating', detail: 'Air quality is getting elevated', color: OledColors.amber };
@@ -1193,11 +1214,11 @@ export default function Index() {
               nestedScrollEnabled
             >
               {automationLog.map((line, index) => (
-                <Text key={`${index}-${line}`} style={styles.logLine}>{line}</Text>
+                <Text key={`${index}-${line}`} style={styles.logLine}>{formatAutomationLogLine(line)}</Text>
               ))}
             </ScrollView>
           )}
-          <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log</Text>
+          <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
         </View>
       </ScrollView>
 
