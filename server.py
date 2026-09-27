@@ -34,6 +34,7 @@ app.add_middleware(
 
 STATE_FILE = "state.json"
 BUTTON_CODES_FILE = "phantom_ir.json"
+AUTOMATION_LOG_FILE = os.path.join(os.path.dirname(__file__), "logs", "automation.log")
 BOOST_DURATION_SECONDS = 20 * 60
 
 # ---------------------------------------------------------------------
@@ -260,6 +261,19 @@ async def get_state():
 async def get_history(limit: int = Query(default=1440, ge=1, le=1440)):
     return {
         "history": get_air_metrics_history(AIR_HISTORY_DB, limit),
+    }
+
+@app.get("/logs/automation")
+async def get_automation_log(lines: int = Query(default=120, ge=1, le=500)):
+    try:
+        with open(AUTOMATION_LOG_FILE, "r", encoding="utf-8", errors="replace") as log_file:
+            log_lines = log_file.readlines()
+    except FileNotFoundError:
+        return {"lines": [], "available": False}
+
+    return {
+        "lines": [line.rstrip("\n") for line in log_lines[-lines:]],
+        "available": True,
     }
 
 @app.get("/")

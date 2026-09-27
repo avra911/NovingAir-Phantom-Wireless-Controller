@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
+import { OledColors } from '../constants/theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -151,6 +152,13 @@ export interface HistoryResponse {
   history: HistorySample[];
 }
 
+type AppView = 'home' | 'remote' | 'diagnostics';
+
+interface AutomationLogResponse {
+  lines: string[];
+  available: boolean;
+}
+
 type HistoryMetricKey =
   | 'co2_ppm'
   | 'temperature_c'
@@ -227,6 +235,12 @@ const formatHistoryTime = (isoValue?: string) => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const getCO2Status = (ppm: number) => {
+  if (ppm < 800) return { label: 'Air feels fresh', detail: 'Good for everyday living', color: OledColors.mint };
+  if (ppm < 1200) return { label: 'Worth ventilating', detail: 'Air quality is getting elevated', color: OledColors.amber };
+  return { label: 'Ventilation needed', detail: 'CO2 is above the comfort range', color: OledColors.coral };
+};
+
 const getHistoryChartConfig = (metricKey: HistoryMetricKey) => {
   return HISTORY_CHARTS.find((config) => config.key === metricKey) ?? HISTORY_CHARTS[0];
 };
@@ -290,6 +304,7 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
   const maxValue = values.length > 0 ? Math.max(...values) : null;
   const chartMax = maxValue && maxValue > 0 ? maxValue : 1;
   const displayColor = getHealthyColorForHistoryValue(config.key, displayValue, config.color);
+  const displayTime = selectedSample?.fetched_at ?? visibleSamples[visibleSamples.length - 1]?.fetched_at;
   const canPageOlder = boundedWindowStart > 0;
   const canPageNewer = boundedWindowStart < latestWindowStart;
 
@@ -317,22 +332,23 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
     <View style={styles.historyChartCard}>
       <View style={styles.historyChartHeader}>
         <View>
-          <Text style={styles.historyChartLabel}>{config.label}</Text>
+          <Text style={styles.historyChartLabel}>SELECTED READING · {config.label}</Text>
           <Text style={[styles.historyChartValue, { color: displayColor }]}> 
             {formatMetricNumber(displayValue, config.precision)}<Text style={styles.unit}> {config.unit}</Text>
           </Text>
         </View>
         <View style={styles.historyChartMeta}>
-          <Text style={styles.historyChartRange}>
-            {formatMetricNumber(minValue, config.precision)}-{formatMetricNumber(maxValue, config.precision)}
+          <Text style={styles.historyChartRange}>RANGE</Text>
+          <Text style={styles.historyChartRangeValue}>
+            {formatMetricNumber(minValue, config.precision)} - {formatMetricNumber(maxValue, config.precision)}
           </Text>
-          <Text style={styles.historySelectedTime}>
-            {formatHistoryTime(selectedSample?.fetched_at ?? visibleSamples[visibleSamples.length - 1]?.fetched_at)}
-          </Text>
+          <Text style={styles.historySelectedTime}>{formatHistoryTime(displayTime)}</Text>
         </View>
       </View>
 
       <View style={styles.chartPlot}>
+        <View style={styles.chartGridLineTop} />
+        <View style={styles.chartGridLineMiddle} />
         {visibleSamples.length === 0 ? (
           <Text style={styles.emptyHistoryText}>NO HISTORY</Text>
         ) : (
@@ -358,6 +374,9 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
                     borderColor: isSelected ? '#ffffff' : 'transparent',
                   },
                 ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${config.label} ${formatMetricNumber(value, config.precision)} ${config.unit} at ${formatHistoryTime(sample.fetched_at)}`}
+                accessibilityState={{ selected: isSelected }}
               />
             );
           })
@@ -366,7 +385,7 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
 
       <View style={styles.historyTimeRow}>
         <Text style={styles.historyTimeText}>{formatHistoryTime(visibleSamples[0]?.fetched_at)}</Text>
-        <Text style={styles.historyTimeText}>hour {currentWindow + 1}/{totalWindows}</Text>
+        <Text style={styles.historyTimeText}>WINDOW {currentWindow + 1} OF {totalWindows}</Text>
         <Text style={styles.historyTimeText}>{formatHistoryTime(visibleSamples[visibleSamples.length - 1]?.fetched_at)}</Text>
       </View>
 
@@ -376,7 +395,7 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
           disabled={!canPageOlder}
           onPress={showOlderWindow}
         >
-          <Ionicons name="chevron-back" size={32} color={canPageOlder ? '#00ffcc' : '#333333'} />
+          <Ionicons name="chevron-back" size={26} color={canPageOlder ? '#7ef2d0' : '#333333'} />
         </TouchableOpacity>
 
         <ScrollView
@@ -402,7 +421,7 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
           disabled={!canPageNewer}
           onPress={showNewerWindow}
         >
-          <Ionicons name="chevron-forward" size={32} color={canPageNewer ? '#00ffcc' : '#333333'} />
+          <Ionicons name="chevron-forward" size={26} color={canPageNewer ? '#7ef2d0' : '#333333'} />
         </TouchableOpacity>
       </View>
     </View>
@@ -419,6 +438,12 @@ export default function Index() {
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
   const [controlsLocked, setControlsLocked] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [activeView, setActiveView] = useState<AppView>('home');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [automationLog, setAutomationLog] = useState<string[]>([]);
+  const [logAvailable, setLogAvailable] = useState(true);
+  const [logLoading, setLogLoading] = useState(false);
   const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
 
   useEffect(() => {
@@ -447,6 +472,7 @@ export default function Index() {
         setSensorMetrics(data.sensor);
         setIndoorMetrics(data.indoor ?? null);
         setOutdoorMetrics(data.outdoor ?? null);
+        setLastUpdatedAt(new Date());
       }
     } catch (err) {
       console.error("Failed to sync initial state:", err);
@@ -464,6 +490,22 @@ export default function Index() {
       }
     } catch (err) {
       console.error("Failed to fetch sensor history:", err);
+    }
+  };
+
+  const fetchAutomationLog = async () => {
+    setLogLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/logs/automation?lines=160`);
+      if (!res.ok) throw new Error(`Log request failed with HTTP status ${res.status}`);
+      const data: AutomationLogResponse = await res.json();
+      setAutomationLog(data.lines ?? []);
+      setLogAvailable(data.available);
+    } catch (err) {
+      console.error('Failed to fetch automation log:', err);
+      setLogAvailable(false);
+    } finally {
+      setLogLoading(false);
     }
   };
 
@@ -610,6 +652,13 @@ export default function Index() {
   };
 
   const activeHistoryConfig = activeHistoryMetric ? getHistoryChartConfig(activeHistoryMetric) : null;
+  const co2Status = getCO2Status(sensorMetrics.co2_ppm);
+  const updateLabel = lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Waiting for sensor';
+  const viewTitles: Record<AppView, string> = {
+    home: 'Home air, made clear.',
+    remote: 'Phantom remote.',
+    diagnostics: 'System diagnostics.',
+  };
   const speedControlEnabled = !phantomState.automation_enabled
     && (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE');
   const humidityControlEnabled = !phantomState.automation_enabled
@@ -637,10 +686,19 @@ export default function Index() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>NovingAir Control Hub</Text>
+        <View style={styles.appHeader}>
+          <View>
+            <Text style={styles.eyebrow}>NOVINGAIR</Text>
+            <Text style={styles.title}>{viewTitles[activeView]}</Text>
+          </View>
+          <TouchableOpacity style={styles.menuButton} onPress={() => setMenuOpen(true)} accessibilityRole="button" accessibilityLabel="Open navigation menu">
+            <Ionicons name="menu" size={24} color="#7ef2d0" />
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.updatedText}>{updateLabel} · Phantom {phantomState.mode.toLowerCase()}</Text>
 
         {/* --- AIR QUALITY MONITOR PANEL --- */}
-        <View style={styles.sensorCard}>
+        <View style={[styles.sensorCard, activeView !== 'home' && styles.hiddenView]}>
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons name="molecule-co2" size={24} color={getCO2Color(sensorMetrics.co2_ppm)} />
@@ -658,10 +716,25 @@ export default function Index() {
             </View>
           </View>
 
+          <View style={styles.airHero}>
+            <View style={styles.airHeroCopy}>
+              <Text style={styles.sectionEyebrow}>AIR NOW</Text>
+              <Text style={styles.airStatus}>{co2Status.label}</Text>
+              <Text style={styles.airStatusDetail}>{co2Status.detail}</Text>
+            </View>
+            <View style={styles.co2HeroValue}>
+              <Text style={[styles.co2HeroNumber, { color: co2Status.color }]}>{formatMetricNumber(sensorMetrics.co2_ppm)}</Text>
+              <Text style={styles.co2HeroUnit}>PPM CO2</Text>
+            </View>
+          </View>
+
           <View style={styles.metricsGrid}>
             <TouchableOpacity
               style={[styles.metricItem, activeHistoryMetric === 'co2_ppm' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('co2_ppm')}
+              accessibilityRole="button"
+              accessibilityLabel={`CO2 ${sensorMetrics.co2_ppm} parts per million`}
+              accessibilityHint="Opens CO2 history"
             >
               <Text style={styles.metricLabel}>CO2</Text>
               <Text style={[styles.metricValue, { color: getCO2Color(sensorMetrics.co2_ppm) }]}>
@@ -671,6 +744,9 @@ export default function Index() {
             <TouchableOpacity
               style={[styles.metricItem, activeHistoryMetric === 'temperature_c' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('temperature_c')}
+              accessibilityRole="button"
+              accessibilityLabel={`Temperature ${sensorMetrics.temperature_c} degrees Celsius`}
+              accessibilityHint="Opens temperature history"
             >
               <Text style={styles.metricLabel}>TEMP</Text>
               <Text style={[styles.metricValue, { color: getTempColor(sensorMetrics.temperature_c) }]}>
@@ -680,6 +756,9 @@ export default function Index() {
             <TouchableOpacity
               style={[styles.metricItem, activeHistoryMetric === 'humidity_pct' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('humidity_pct')}
+              accessibilityRole="button"
+              accessibilityLabel={`Humidity ${sensorMetrics.humidity_pct} percent`}
+              accessibilityHint="Opens humidity history"
             >
               <Text style={styles.metricLabel}>HUMIDITY</Text>
               <Text style={[styles.metricValue, { color: getHumidityColor(sensorMetrics.humidity_pct) }]}>
@@ -698,6 +777,9 @@ export default function Index() {
             <TouchableOpacity
               style={[styles.metricItem, activeHistoryMetric === 'pm25_ugm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('pm25_ugm3')}
+              accessibilityRole="button"
+              accessibilityLabel={`PM2.5 ${sensorMetrics.pm25_ugm3} micrograms per cubic meter`}
+              accessibilityHint="Opens PM2.5 history"
             >
               <Text style={styles.metricLabel}>PM2.5</Text>
               <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm25_ugm3) }]}>
@@ -735,7 +817,7 @@ export default function Index() {
         </View>
 
         {/* --- ZIGBEE SENSORS PANEL --- */}
-        <View style={styles.zigbeeContainer}>
+        <View style={[styles.zigbeeContainer, activeView !== 'home' && styles.hiddenView]}>
           {/* Indoor Sensor Box */}
           <View style={styles.zigbeeCard}>
             <View style={styles.zigbeeCardHeader}>
@@ -822,8 +904,22 @@ export default function Index() {
         </View>
 
         {/* --- HRV LCD STATUS SCREEN --- */}
-        <View style={styles.lcdScreen}>
+        <View style={[styles.lcdScreen, activeView !== 'remote' && styles.hiddenView]}>
           <Text style={styles.lcdHeaderTitle}>PHANTOM UNIT STATUS</Text>
+          <View style={styles.controlNotice}>
+            <Ionicons
+              name={controlsLocked ? 'lock-closed-outline' : phantomState.automation_enabled ? 'sparkles-outline' : 'create-outline'}
+              size={16}
+              color={controlsLocked ? '#f4b860' : '#7ef2d0'}
+            />
+            <Text style={styles.controlNoticeText}>
+              {controlsLocked
+                ? 'Locked for safety · Unlock to adjust.'
+                : phantomState.automation_enabled
+                  ? 'Automation is managing the Phantom unit.'
+                  : 'Manual control is active.'}
+            </Text>
+          </View>
 
           <View style={styles.lcdRow}>
             <TouchableOpacity
@@ -838,7 +934,8 @@ export default function Index() {
               onPress={() => sendCommand('MODE')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
-              accessibilityLabel="Mode"
+              accessibilityLabel={`Mode ${phantomState.mode.toLowerCase()}`}
+              accessibilityState={{ disabled: !modeClickable, selected: phantomState.mode !== 'NONE' }}
             >
               {getModeGlyph(phantomState.mode) ? (
                 <PhantomGlyph
@@ -848,6 +945,7 @@ export default function Index() {
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
+              <Text style={[styles.controlLabel, !modeClickable && styles.controlLabelDisabled]}>{phantomState.mode}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -862,13 +960,15 @@ export default function Index() {
               onPress={() => sendCommand('SPEED')}
               disabled={loading !== null || controlsLocked || !speedControlEnabled}
               accessibilityRole="button"
-              accessibilityLabel="Speed"
+              accessibilityLabel={`Fan speed ${phantomState.speed} of 3`}
+              accessibilityState={{ disabled: !speedClickable, selected: speedStatusActive }}
             >
               <PhantomLevelGlyphs
                 name="fan"
                 level={phantomState.speed}
                 color={speedClickable ? "#00ffcc" : "#444"}
               />
+              <Text style={[styles.controlLabel, !speedClickable && styles.controlLabelDisabled]}>SPEED {phantomState.speed}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -883,13 +983,15 @@ export default function Index() {
               onPress={() => sendCommand('HUMIDITY')}
               disabled={loading !== null || controlsLocked || !humidityControlEnabled}
               accessibilityRole="button"
-              accessibilityLabel="Humidity target"
+              accessibilityLabel={`Humidity target ${phantomState.humidity} of 3`}
+              accessibilityState={{ disabled: !humidityClickable, selected: humidityStatusActive }}
             >
               <PhantomLevelGlyphs
                 name="humidity"
                 level={phantomState.humidity}
                 color={humidityClickable ? "#00ffcc" : "#444"}
               />
+              <Text style={[styles.controlLabel, !humidityClickable && styles.controlLabelDisabled]}>HUMIDITY {phantomState.humidity}</Text>
             </TouchableOpacity>
           </View>
 
@@ -906,7 +1008,8 @@ export default function Index() {
               onPress={() => sendCommand('FLUX')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
-              accessibilityLabel="Air flow"
+              accessibilityLabel={`Airflow ${phantomState.flux.toLowerCase()}`}
+              accessibilityState={{ disabled: !fluxClickable, selected: phantomState.flux !== 'NONE' }}
             >
               {getFluxGlyph(phantomState.flux) ? (
                 <PhantomGlyph
@@ -916,6 +1019,7 @@ export default function Index() {
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
+              <Text style={[styles.controlLabel, !fluxClickable && styles.controlLabelDisabled]}>AIRFLOW</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -931,8 +1035,10 @@ export default function Index() {
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Night mode"
+              accessibilityState={{ disabled: !nightClickable, selected: phantomState.night }}
             >
               <PhantomGlyph name="night" color={nightClickable ? "#00ffcc" : "#444"} />
+              <Text style={[styles.controlLabel, !nightClickable && styles.controlLabelDisabled]}>NIGHT</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -948,8 +1054,10 @@ export default function Index() {
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Boost"
+              accessibilityState={{ disabled: !boostClickable, selected: phantomState.boost }}
             >
               <PhantomGlyph name="temp_evac" color={boostClickable ? "#00ffcc" : "#444"} />
+              <Text style={[styles.controlLabel, !boostClickable && styles.controlLabelDisabled]}>BOOST</Text>
             </TouchableOpacity>
           </View>
 
@@ -1010,6 +1118,41 @@ export default function Index() {
             })}
           </View>
         </View>
+
+        <View style={[styles.diagnosticsCard, activeView !== 'diagnostics' && styles.hiddenView]}>
+          <View style={styles.diagnosticsHeader}>
+            <View>
+              <Text style={styles.sectionEyebrow}>AUTOMATION LOG</Text>
+              <Text style={styles.diagnosticsTitle}>Recent system activity</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={fetchAutomationLog}
+              disabled={logLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh automation log"
+            >
+              {logLoading ? <ActivityIndicator size="small" color="#7ef2d0" /> : <Ionicons name="refresh" size={18} color="#7ef2d0" />}
+            </TouchableOpacity>
+          </View>
+          {!logAvailable ? (
+            <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
+          ) : automationLog.length === 0 ? (
+            <Text style={styles.diagnosticsEmpty}>No automation entries yet.</Text>
+          ) : (
+            <ScrollView
+              style={styles.logScroll}
+              contentContainerStyle={styles.logScrollContent}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+              {automationLog.map((line, index) => (
+                <Text key={`${index}-${line}`} style={styles.logLine}>{line}</Text>
+              ))}
+            </ScrollView>
+          )}
+          <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log</Text>
+        </View>
       </ScrollView>
 
       <Modal
@@ -1030,11 +1173,78 @@ export default function Index() {
                   <Ionicons name="close" size={16} color="#8e9aaf" />
                 </TouchableOpacity>
               </View>
+              <Text style={styles.historyChooserLabel}>SENSOR MEASURE</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.historyMetricChooser}
+                style={styles.historyMetricChooserScroll}
+              >
+                {HISTORY_CHARTS.map((chart) => {
+                  const isActive = chart.key === activeHistoryMetric;
+                  return (
+                    <TouchableOpacity
+                      key={chart.key}
+                      style={[styles.historyMetricChoice, isActive && styles.historyMetricChoiceActive]}
+                      onPress={() => setActiveHistoryMetric(chart.key)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isActive }}
+                      accessibilityLabel={`Show ${chart.label} history`}
+                    >
+                      <Text style={[styles.historyMetricChoiceText, isActive && styles.historyMetricChoiceTextActive]}>
+                        {chart.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
               <MiniHistoryChart config={activeHistoryConfig} samples={historySamples} />
               <Text style={styles.historyFootnote}>{historySamples.length} stored minutes · latest {VISIBLE_CHART_SAMPLES} min shown</Text>
             </View>
           </SafeAreaView>
         )}
+      </Modal>
+
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <View style={styles.menuOverlay}>
+          <TouchableOpacity style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} accessibilityLabel="Close navigation menu" />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuPanelHeader}>
+              <View>
+                <Text style={styles.eyebrow}>NOVINGAIR</Text>
+                <Text style={styles.menuTitle}>Navigate</Text>
+              </View>
+              <TouchableOpacity onPress={() => setMenuOpen(false)} accessibilityRole="button" accessibilityLabel="Close menu">
+                <Ionicons name="close" size={22} color="#9aa9a7" />
+              </TouchableOpacity>
+            </View>
+            {([
+              ['home', 'Home', 'Air quality and sensors', 'home-outline'],
+              ['remote', 'Remote', 'Control Phantom unit', 'game-controller-outline'],
+              ['diagnostics', 'Diagnostics', 'Automation and system logs', 'bug-outline'],
+            ] as const).map(([view, label, detail, icon]) => (
+              <TouchableOpacity
+                key={view}
+                style={[styles.menuItem, activeView === view && styles.menuItemActive]}
+                onPress={() => {
+                  setActiveView(view);
+                  setMenuOpen(false);
+                  if (view === 'diagnostics') fetchAutomationLog();
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: activeView === view }}
+                accessibilityLabel={`${label}: ${detail}`}
+              >
+                <Ionicons name={icon} size={22} color={activeView === view ? '#7ef2d0' : '#657673'} />
+                <View style={styles.menuItemCopy}>
+                  <Text style={[styles.menuItemLabel, activeView === view && styles.menuItemLabelActive]}>{label}</Text>
+                  <Text style={styles.menuItemDetail}>{detail}</Text>
+                </View>
+                {activeView === view && <View style={styles.menuActiveDot} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1042,17 +1252,57 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
-  scrollContent: { alignItems: 'center', paddingVertical: 20 },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#ffffff', marginBottom: 16 },
+  scrollContent: { alignItems: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  appHeader: {
+    width: '100%',
+    maxWidth: 760,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  eyebrow: { color: '#7ef2d0', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  title: { fontSize: 25, fontWeight: '700', color: '#f4faf8', marginTop: 4 },
+  connectionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderWidth: 1,
+    borderColor: '#1b2926',
+    borderRadius: 20,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    marginTop: 2,
+  },
+  connectionDot: { width: 7, height: 7, borderRadius: 4 },
+  connectionText: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  menuButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1b2926',
+    borderRadius: 12,
+  },
+  updatedText: {
+    width: '100%',
+    maxWidth: 760,
+    color: '#657673',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    marginBottom: 16,
+  },
   
   sensorCard: {
-    width: '90%',
-    backgroundColor: '#000000',
-    borderRadius: 16,
-    padding: 16,
+    width: '100%',
+    maxWidth: 760,
+    backgroundColor: '#0a0d0d',
+    borderRadius: 18,
+    padding: 18,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#1b2926',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1063,8 +1313,25 @@ const styles = StyleSheet.create({
     borderBottomColor: '#222222',
     paddingBottom: 8,
   },
-  cardHeaderTitle: { color: '#8e9aaf', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
-  statusText: { color: '#8e9aaf', fontSize: 11, fontFamily: 'monospace' },
+  cardHeaderTitle: { color: '#9aa9a7', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
+  statusText: { color: '#9aa9a7', fontSize: 11, fontFamily: 'monospace' },
+  airHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#06241d',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 16,
+  },
+  airHeroCopy: { flex: 1, paddingRight: 12 },
+  sectionEyebrow: { color: '#7ef2d0', fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 5 },
+  airStatus: { color: '#f4faf8', fontSize: 19, fontWeight: '700', marginBottom: 4 },
+  airStatusDetail: { color: '#9aa9a7', fontSize: 11, lineHeight: 16 },
+  co2HeroValue: { alignItems: 'flex-end' },
+  co2HeroNumber: { fontSize: 34, fontWeight: '700', fontFamily: 'monospace' },
+  co2HeroUnit: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   metricsGrid: { 
     flexDirection: 'row', 
     flexWrap: 'wrap', 
@@ -1072,8 +1339,9 @@ const styles = StyleSheet.create({
     rowGap: 10,
   },
   metricItem: {
-    width: '23%',
-    paddingVertical: 4,
+    width: '24%',
+    minHeight: 54,
+    paddingVertical: 7,
     alignItems: 'center',
     borderRadius: 8,
     borderWidth: 1,
@@ -1083,9 +1351,29 @@ const styles = StyleSheet.create({
     borderColor: '#00ffcc',
     backgroundColor: '#001a14',
   },
-  metricLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
-  metricValue: { color: '#fff', fontSize: 12, fontWeight: 'bold', fontFamily: 'monospace' },
-  unit: { fontSize: 8, color: '#6c757d' },
+  metricLabel: { color: '#657673', fontSize: 10, fontWeight: 'bold', marginBottom: 3 },
+  metricValue: { color: '#f4faf8', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
+  unit: { fontSize: 8, color: '#9aa9a7' },
+  hiddenView: { display: 'none' },
+
+  diagnosticsCard: {
+    width: '100%',
+    maxWidth: 760,
+    backgroundColor: '#0a0d0d',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#1b2926',
+    padding: 18,
+    marginBottom: 24,
+  },
+  diagnosticsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  diagnosticsTitle: { color: '#f4faf8', fontSize: 18, fontWeight: '700', marginTop: 3 },
+  refreshButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: '#1b2926', alignItems: 'center', justifyContent: 'center' },
+  diagnosticsEmpty: { color: '#9aa9a7', fontSize: 13, paddingVertical: 24 },
+  logScroll: { maxHeight: 420, backgroundColor: '#050707', borderRadius: 10, paddingHorizontal: 12 },
+  logScrollContent: { paddingTop: 12, paddingBottom: 18 },
+  logLine: { color: '#9aa9a7', fontSize: 11, lineHeight: 18, fontFamily: 'monospace', flexShrink: 1, paddingBottom: 2 },
+  diagnosticsFootnote: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 10 },
 
   // --- HISTORY CHARTS ---
   historyModalScreen: {
@@ -1107,35 +1395,53 @@ const styles = StyleSheet.create({
   historyChartCard: {
     width: '100%',
     flex: 1,
-    backgroundColor: '#050505',
-    borderRadius: 10,
+    backgroundColor: '#0a0d0d',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#1f1f1f',
-    padding: 10,
+    borderColor: '#1b2926',
+    padding: 14,
   },
+  historyChooserLabel: { color: '#657673', fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 7 },
+  historyMetricChooserScroll: { flexGrow: 0, marginBottom: 12 },
+  historyMetricChooser: { gap: 7, paddingRight: 8 },
+  historyMetricChoice: {
+    borderWidth: 1,
+    borderColor: '#1b2926',
+    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  historyMetricChoiceActive: { backgroundColor: '#06241d', borderColor: '#00d9ae' },
+  historyMetricChoiceText: { color: '#9aa9a7', fontSize: 10, fontWeight: '800' },
+  historyMetricChoiceTextActive: { color: '#7ef2d0' },
   historyChartHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 8,
   },
-  historyChartLabel: { color: '#6c757d', fontSize: 9, fontWeight: 'bold', marginBottom: 2 },
-  historyChartValue: { fontSize: 14, fontWeight: 'bold', fontFamily: 'monospace' },
+  historyChartLabel: { color: '#657673', fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 5 },
+  historyChartValue: { fontSize: 22, fontWeight: 'bold', fontFamily: 'monospace' },
   historyChartMeta: { alignItems: 'flex-end' },
-  historyChartRange: { color: '#6c757d', fontSize: 9, fontFamily: 'monospace' },
-  historySelectedTime: { color: '#8e9aaf', fontSize: 9, fontFamily: 'monospace', marginTop: 2 },
+  historyChartRange: { color: '#657673', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  historyChartRangeValue: { color: '#9aa9a7', fontSize: 11, fontFamily: 'monospace', marginTop: 3 },
+  historySelectedTime: { color: '#7ef2d0', fontSize: 10, fontFamily: 'monospace', marginTop: 6 },
   chartPlot: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 1,
     borderBottomWidth: 1,
-    borderBottomColor: '#222222',
+    borderBottomColor: '#1b2926',
+    minHeight: 220,
+    position: 'relative',
     overflow: 'hidden',
   },
+  chartGridLineTop: { position: 'absolute', top: '25%', left: 0, right: 0, borderTopWidth: 1, borderTopColor: '#12201d' },
+  chartGridLineMiddle: { position: 'absolute', top: '50%', left: 0, right: 0, borderTopWidth: 1, borderTopColor: '#12201d' },
   chartBar: {
     flex: 1,
-    minWidth: 1,
+    minWidth: 3,
     borderWidth: 1,
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
@@ -1161,13 +1467,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   historyNavButton: {
-    width: 58,
-    height: 48,
+    width: 52,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#1b2926',
   },
   historyNavButtonDisabled: {
     opacity: 0.55,
@@ -1207,16 +1513,29 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  menuOverlay: { flex: 1, flexDirection: 'row' },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.72)' },
+  menuPanel: { width: '84%', maxWidth: 360, backgroundColor: '#0a0d0d', borderRightWidth: 1, borderRightColor: '#1b2926', padding: 22, paddingTop: 58 },
+  menuPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 },
+  menuTitle: { color: '#f4faf8', fontSize: 24, fontWeight: '700', marginTop: 4 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: 13, marginBottom: 8 },
+  menuItemActive: { backgroundColor: '#06241d' },
+  menuItemCopy: { flex: 1, marginLeft: 13 },
+  menuItemLabel: { color: '#f4faf8', fontSize: 15, fontWeight: '700' },
+  menuItemLabelActive: { color: '#7ef2d0' },
+  menuItemDetail: { color: '#657673', fontSize: 11, marginTop: 3 },
+  menuActiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#7ef2d0' },
 
   // --- ZIGBEE STYLES ---
   zigbeeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '90%',
+    width: '100%',
+    maxWidth: 760,
     marginBottom: 20,
   },
   zigbeeCard: {
-    width: '48%',
+    width: '49%',
     backgroundColor: '#000000',
     borderRadius: 12,
     padding: 12,
@@ -1261,16 +1580,17 @@ const styles = StyleSheet.create({
 
   // --- LCD STYLES ---
   lcdScreen: {
-    width: '90%',
-    backgroundColor: '#000000',
-    borderColor: 'rgba(0, 255, 204, 0.4)',
+    width: '100%',
+    maxWidth: 760,
+    backgroundColor: '#0a0d0d',
+    borderColor: '#1b2926',
     borderWidth: 1.5,
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
   },
   lcdHeaderTitle: {
-    color: '#00ffcc',
+    color: '#7ef2d0',
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -1278,15 +1598,26 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     opacity: 0.8,
   },
+  controlNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: '#101615',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  controlNoticeText: { flex: 1, color: '#9aa9a7', fontSize: 11, lineHeight: 16 },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 8 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
-    backgroundColor: '#000000',
-    borderColor: '#1f1f1f',
+    backgroundColor: '#0a0d0d',
+    borderColor: '#1b2926',
     borderWidth: 1,
     borderRadius: 8,
-    minHeight: 92,
+    minHeight: 102,
     paddingVertical: 8,
     paddingHorizontal: 8,
     marginHorizontal: 3,
@@ -1295,13 +1626,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 0,
   },
-  statusBoxHighlighted: { borderColor: '#00ffcc', backgroundColor: '#001a14' },
-  statusBoxAutoHighlighted: { borderColor: '#00665a', backgroundColor: '#000a08' },
-  statusBoxDisabledBorder: { borderColor: '#1f1f1f', backgroundColor: '#000000' },
+  statusBoxHighlighted: { borderColor: '#00d9ae', backgroundColor: '#06241d' },
+  statusBoxAutoHighlighted: { borderColor: '#245e50', backgroundColor: '#071512' },
+  statusBoxDisabledBorder: { borderColor: '#1b2926', backgroundColor: '#0a0d0d' },
   statusBoxDisabled: { opacity: 0.4 },
   phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 2 },
   statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
   statusBoxLabelDisabled: { color: '#444' },
+  controlLabel: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginTop: 8 },
+  controlLabelDisabled: { color: '#657673' },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
   disabledText: { color: '#333333' },

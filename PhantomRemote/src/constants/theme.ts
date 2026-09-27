@@ -18,10 +18,26 @@ export const Colors = {
   dark: {
     text: '#ffffff',
     background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    backgroundElement: '#0a0d0d',
+    backgroundSelected: '#10211e',
+    textSecondary: '#9aa9a7',
   },
+} as const;
+
+export const OledColors = {
+  ink: '#000000',
+  surface: '#0a0d0d',
+  surfaceRaised: '#101615',
+  line: '#1b2926',
+  lineSoft: '#12201d',
+  text: '#f4faf8',
+  textSecondary: '#9aa9a7',
+  textMuted: '#657673',
+  mint: '#7ef2d0',
+  mintStrong: '#00d9ae',
+  mintWash: '#06241d',
+  amber: '#f4b860',
+  coral: '#f17b76',
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
