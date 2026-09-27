@@ -665,6 +665,16 @@ export default function Index() {
     && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
   const speedStatusActive = phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE';
   const humidityStatusActive = phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP';
+  const modeLabel = phantomState.mode === 'NONE' ? 'Direct airflow' : phantomState.mode;
+  const fluxLabel = {
+    NONE: 'None',
+    NORTH_SOUTH: 'Master slave',
+    SOUTH_NORTH: 'Slave master',
+    INTAKE: 'Intake',
+    EXTRACT: 'Extract',
+  }[phantomState.flux];
+  const modeAirflowCycle = phantomState.mode !== 'NONE' && phantomState.flux === 'NONE';
+  const airflowStatusLabel = modeAirflowCycle ? 'Mode-managed cycle' : fluxLabel;
   const modeClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
   const speedClickable = loading === null && !controlsLocked && speedControlEnabled;
   const humidityClickable = loading === null && !controlsLocked && humidityControlEnabled;
@@ -900,6 +910,42 @@ export default function Index() {
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+
+        <View style={[styles.currentStatusCard, activeView !== 'home' && styles.hiddenView]}>
+          <View style={styles.currentStatusHeader}>
+            <View>
+              <Text style={styles.sectionEyebrow}>CURRENT STATUS</Text>
+              <Text style={styles.currentStatusTitle}>Phantom is {phantomState.automation_enabled ? 'running automatically' : 'under manual control'}</Text>
+            </View>
+            <View style={[styles.automationBadge, phantomState.automation_enabled ? styles.automationBadgeOn : styles.automationBadgeOff]}>
+              <View style={[styles.automationDot, { backgroundColor: phantomState.automation_enabled ? '#00d9ae' : '#657673' }]} />
+              <Text style={styles.automationBadgeText}>AUTO {phantomState.automation_enabled ? 'ON' : 'OFF'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.currentStatusGrid}>
+            <View style={styles.currentStatusItem}>
+              <Text style={styles.currentStatusLabel}>MODE</Text>
+              <Text style={styles.currentStatusValue}>{modeLabel}</Text>
+            </View>
+            <View style={styles.currentStatusItem}>
+              <Text style={styles.currentStatusLabel}>AIRFLOW</Text>
+              <Text style={styles.currentStatusValue}>{airflowStatusLabel}</Text>
+            </View>
+            {speedStatusActive && (
+              <View style={styles.currentStatusItem}>
+                <Text style={styles.currentStatusLabel}>SPEED</Text>
+                <Text style={styles.currentStatusValue}>Level {phantomState.speed}</Text>
+              </View>
+            )}
+            {humidityStatusActive && (
+              <View style={styles.currentStatusItem}>
+                <Text style={styles.currentStatusLabel}>HUMIDITY</Text>
+                <Text style={styles.currentStatusValue}>Level {phantomState.humidity}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -1609,6 +1655,48 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   controlNoticeText: { flex: 1, color: '#9aa9a7', fontSize: 11, lineHeight: 16 },
+  currentStatusCard: {
+    width: '100%',
+    maxWidth: 760,
+    backgroundColor: '#101615',
+    borderColor: '#1b2926',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  currentStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 12,
+  },
+  currentStatusTitle: { color: '#f4faf8', fontSize: 14, fontWeight: '700', marginTop: 4 },
+  automationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  automationBadgeOn: { backgroundColor: '#06241d' },
+  automationBadgeOff: { backgroundColor: '#18201f' },
+  automationDot: { width: 7, height: 7, borderRadius: 4 },
+  automationBadgeText: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  currentStatusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  currentStatusItem: {
+    flexGrow: 1,
+    flexBasis: '22%',
+    minWidth: 112,
+    backgroundColor: '#0a0d0d',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  currentStatusLabel: { color: '#657673', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  currentStatusValue: { color: '#7ef2d0', fontSize: 12, fontWeight: '700', marginTop: 4 },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 8 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
