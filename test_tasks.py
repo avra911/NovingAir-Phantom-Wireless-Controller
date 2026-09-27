@@ -4,6 +4,11 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 from tasks import get_air_metrics_history, poll_air_sensor_task, save_air_metrics_snapshot
+from tasks import _should_use_direct_flow
+
+
+def test_direct_flow_stops_when_indoor_temperature_is_closer_to_ideal():
+    assert _should_use_direct_flow(22.9, 21.0, True) is False
 
 @pytest.mark.asyncio
 async def test_scenario_1_normal_co2():

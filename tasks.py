@@ -17,7 +17,6 @@ NIGHT_START_HOUR = 21
 NIGHT_END_HOUR = 8
 SPEED_CHANGE_LOCK_MINUTES = 30
 POLL_INTERVAL_SECONDS = 60
-TEMP_HYSTERESIS_C = 0.5  # Prevents rapid toggling
 AIR_HISTORY_DB = os.environ.get("AIR_HISTORY_DB", "data/air_history.sqlite3")
 
 AIR_HISTORY_FIELDS = (
@@ -66,16 +65,8 @@ def _get_target_speed(co2_ppm: float, night: bool) -> int:
 def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None, current_flow: bool) -> bool:
     if outdoor_temp is None:
         return False
-    
-    indoor_distance = abs(indoor_temp - IDEAL_TEMP)
-    outdoor_distance = abs(outdoor_temp - IDEAL_TEMP)
-    
-    # If already running direct flow, apply hysteresis before turning OFF
-    if current_flow:
-        return outdoor_distance <= (indoor_distance + TEMP_HYSTERESIS_C)
-    
-    # Simple check for turning ON direct flow
-    return outdoor_distance < indoor_distance
+
+    return abs(outdoor_temp - IDEAL_TEMP) < abs(indoor_temp - IDEAL_TEMP)
 
 def _safe_float(val, divisor=1.0):
     if val is None:
