@@ -272,7 +272,7 @@ async def get_automation_log(lines: int = Query(default=120, ge=1, le=500)):
         return {"lines": [], "available": False}
 
     return {
-        "lines": [line.rstrip("\n") for line in log_lines[-lines:]],
+        "lines": [line.rstrip("\n") for line in reversed(log_lines[-lines:])],
         "available": True,
     }
 
