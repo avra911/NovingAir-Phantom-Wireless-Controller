@@ -561,7 +561,7 @@ export default function Index() {
       case 'SOUTH_NORTH': return 'slave_master';
       case 'INTAKE': return 'insert';
       case 'EXTRACT': return 'evac';
-      default: return 'master_slave';
+      default: return null;
     }
   };
 
