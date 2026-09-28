@@ -695,7 +695,7 @@ export default function Index() {
     EXTRACT: 'Extract',
   }[phantomState.flux];
   const modeAirflowCycle = phantomState.mode !== 'NONE' && phantomState.flux === 'NONE';
-  const airflowStatusLabel = modeAirflowCycle ? 'Mode-managed cycle' : fluxLabel;
+  const airflowStatusLabel = modeAirflowCycle ? 'Alternative' : fluxLabel;
   const modeClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
   const speedClickable = loading === null && !controlsLocked && speedControlEnabled;
   const humidityClickable = loading === null && !controlsLocked && humidityControlEnabled;
