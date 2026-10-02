@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 import pytest
@@ -108,6 +109,19 @@ def test_existing_air_history_db_does_not_recreate_schema(tmp_path):
 
     create_schema.assert_not_called()
     assert row_count == 2
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="requires Linux procfs")
+def test_air_history_connections_are_closed(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    metrics = {"co2_ppm": 650, "online": True, "zigbee_online": True}
+    initial_fd_count = len(os.listdir("/proc/self/fd"))
+
+    for _ in range(20):
+        save_air_metrics_snapshot(metrics, db_path)
+        get_air_metrics_history(db_path)
+
+    assert len(os.listdir("/proc/self/fd")) <= initial_fd_count + 1
 
 
 def test_get_air_metrics_history_returns_oldest_to_newest_limited_rows(tmp_path):

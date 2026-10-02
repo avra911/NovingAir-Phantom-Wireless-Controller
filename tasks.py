@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import closing
 import json
 import logging
 import os
@@ -144,7 +145,7 @@ def save_air_metrics_snapshot(metrics: dict, db_path: str, fetched_at: datetime 
     timestamp = (fetched_at or _get_now()).isoformat()
     snapshot = {field: metrics.get(field) for field in AIR_HISTORY_FIELDS}
 
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         if should_create_schema:
             _create_air_history_schema(conn)
 
@@ -204,7 +205,7 @@ def get_air_metrics_history(db_path: str, limit: int = 180) -> list[dict]:
     safe_limit = max(1, min(limit, 1440))
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
