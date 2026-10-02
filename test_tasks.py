@@ -4,8 +4,19 @@ import sqlite3
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
-from tasks import get_air_metrics_history, poll_air_sensor_task, save_air_metrics_snapshot
+from tasks import _send_ir, get_air_metrics_history, poll_air_sensor_task, save_air_metrics_snapshot
 from tasks import _should_use_direct_flow
+
+
+def test_automation_ir_log_omits_none_response(caplog):
+    mock_ir = MagicMock()
+    mock_ir.send_button.return_value = None
+
+    with caplog.at_level("INFO"):
+        assert _send_ir(mock_ir, {"SPEED_1": "BTN_S1"}, "SPEED_1") is True
+
+    assert "IR command SPEED_1" in caplog.messages
+    assert not any("None" in message for message in caplog.messages)
 
 
 def test_direct_flow_stops_when_indoor_temperature_is_closer_to_ideal():

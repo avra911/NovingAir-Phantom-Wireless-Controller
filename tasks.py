@@ -244,7 +244,10 @@ def _send_ir(ir_device, button_codes: dict, button_name: str):
         return False
     try:
         result = ir_device.send_button(code)
-        logging.info(f"IR command {button_name}: {result}")
+        if result is None:
+            logging.info("IR command %s", button_name)
+        else:
+            logging.info("IR command %s: %s", button_name, result)
         return True
     except Exception as e:
         logging.error(f"IR command failed for {button_name}: {e}")

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 import asyncio
 import json
+import logging
 import os
 import time
 
@@ -64,9 +65,11 @@ gateway = TuyaGateway()
 # ---------------------------------------------------------------------
 class PhantomState(BaseModel):
     mode: str = "AUTO"
+    last_mode: str = "AUTO"
     speed: int = 3
     humidity: int = 3
     flux: str = "NONE"
+    last_flux: str = "NORTH_SOUTH"
     night: bool = False
     boost: bool = False
     automation_enabled: bool = True
@@ -107,6 +110,12 @@ def load_state() -> dict:
         try:
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
+            if data.get("last_mode") not in ("AUTO", "SLEEP", "MANUAL"):
+                current_mode = data.get("mode")
+                data["last_mode"] = current_mode if current_mode in ("AUTO", "SLEEP", "MANUAL") else "AUTO"
+            if data.get("last_flux") not in ("SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"):
+                current_flux = data.get("flux")
+                data["last_flux"] = current_flux if current_flux in ("SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH") else "NORTH_SOUTH"
             for key, value in DEFAULT_STATE.items():
                 if key not in data:
                     data[key] = value
@@ -228,7 +237,12 @@ def send_ir_button(button_name: str):
         )
     try:
         result = ir_device.send_button(code)
-        print(f"[IR SENT] {button_name} | Result: {result}")
+        if result is None:
+            logging.info("IR command %s", button_name)
+            print(f"[IR SENT] {button_name}")
+        else:
+            logging.info("IR command %s: %s", button_name, result)
+            print(f"[IR SENT] {button_name} | Result: {result}")
         return result
     except Exception as e:
         print(f"[IR ERROR] Failed to send {button_name}: {e}")
@@ -309,12 +323,17 @@ async def command(action: str):
     elif action == "MODE":
         modes = ["AUTO", "SLEEP", "MANUAL"]
         current_mode = CURRENT_STATE.get("mode", "AUTO")
-        idx = modes.index(current_mode) if current_mode in modes else -1
-        new_mode = modes[(idx + 1) % len(modes)]
+        if current_mode == "NONE":
+            remembered_mode = CURRENT_STATE.get("last_mode", "AUTO")
+            new_mode = remembered_mode if remembered_mode in modes else "AUTO"
+        else:
+            idx = modes.index(current_mode) if current_mode in modes else -1
+            new_mode = modes[(idx + 1) % len(modes)]
         if CURRENT_STATE.get("boost"):
             await _stop_boost()
         send_ir_button(f"MODE_{new_mode}")
         CURRENT_STATE["mode"] = new_mode
+        CURRENT_STATE["last_mode"] = new_mode
         CURRENT_STATE["flux"] = "NONE"
         CURRENT_STATE["boost"] = False
 
@@ -322,11 +341,16 @@ async def command(action: str):
         if CURRENT_STATE.get("boost"):
             await _stop_boost()
         fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
-        current_flux = CURRENT_STATE.get("flux", "SOUTH_NORTH")
-        idx = fluxes.index(current_flux) if current_flux in fluxes else -1
-        new_flux = fluxes[(idx + 1) % len(fluxes)]
+        current_flux = CURRENT_STATE.get("flux", "NONE")
+        if current_flux == "NONE":
+            remembered_flux = CURRENT_STATE.get("last_flux", "NORTH_SOUTH")
+            new_flux = remembered_flux if remembered_flux in fluxes else "NORTH_SOUTH"
+        else:
+            idx = fluxes.index(current_flux) if current_flux in fluxes else -1
+            new_flux = fluxes[(idx + 1) % len(fluxes)]
         send_ir_button(f"FLUX_{new_flux}")
         CURRENT_STATE["flux"] = new_flux
+        CURRENT_STATE["last_flux"] = new_flux
         CURRENT_STATE["mode"] = "NONE"
         CURRENT_STATE["boost"] = False
 
@@ -366,6 +390,7 @@ async def command(action: str):
             await _stop_boost()
         new_state = not CURRENT_STATE.get("automation_enabled", True)
         CURRENT_STATE["automation_enabled"] = new_state
+        logging.info("Remote command TOGGLE_AUTO: %s", "enabled" if new_state else "disabled")
         if not new_state:
             # Inject an instant reset flag for the background task to catch
             CURRENT_STATE["reset_speed_lock"] = True
