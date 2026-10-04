@@ -9,6 +9,10 @@
     "android": {
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
       "package": "com.samezenbody.PhantomRemote",
       "versionCode": 2
     },

@@ -15,7 +15,7 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { OledColors } from '../constants/theme';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.139:8000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const PHANTOM_GLYPHS = {
   auto: '\ue900',
