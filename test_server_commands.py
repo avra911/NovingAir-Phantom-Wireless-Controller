@@ -135,3 +135,34 @@ async def test_automation_toggle_is_logged(monkeypatch, caplog):
         await server.command("TOGGLE_AUTO")
 
     assert "Remote command TOGGLE_AUTO: disabled" in caplog.messages
+
+
+@pytest.mark.asyncio
+async def test_toggle_auto_restores_physical_state_after_boost(monkeypatch):
+    previous_state = {
+        "mode": "AUTO",
+        "last_mode": "AUTO",
+        "speed": 1,
+        "humidity": 3,
+        "flux": "NONE",
+        "night": False,
+        "automation_enabled": False,
+    }
+    state = {
+        **previous_state,
+        "boost": True,
+        "boost_previous_state": previous_state,
+        "boost_expires_at": 1200.0,
+    }
+    sent_commands = []
+
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "send_ir_button", sent_commands.append)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+    monkeypatch.setattr(server, "boost_task", None)
+
+    await server.command("TOGGLE_AUTO")
+
+    assert sent_commands == ["MODE_AUTO", "SPEED_1", "HUMIDITY_3"]
+    assert state["boost"] is False
+    assert state["automation_enabled"] is True

@@ -166,7 +166,18 @@ def _restore_boost_state() -> None:
             "automation_enabled": True,
         }
 
-    send_ir_button("BOOST")
+    mode = snapshot.get("mode")
+    flux = snapshot.get("flux")
+    if mode in {"AUTO", "SLEEP", "MANUAL"}:
+        send_ir_button(f"MODE_{mode}")
+    elif flux in {"SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"}:
+        send_ir_button(f"FLUX_{flux}")
+    if snapshot.get("speed") in {1, 2, 3}:
+        send_ir_button(f"SPEED_{snapshot['speed']}")
+    if snapshot.get("humidity") in {1, 2, 3}:
+        send_ir_button(f"HUMIDITY_{snapshot['humidity']}")
+    if snapshot.get("night"):
+        send_ir_button("MODE_NIGHT")
     CURRENT_STATE.update(snapshot)
     CURRENT_STATE["boost"] = False
     CURRENT_STATE.pop("boost_expires_at", None)

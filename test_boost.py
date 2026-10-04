@@ -77,6 +77,6 @@ async def test_boost_timer_restores_previous_state_after_expiry(monkeypatch):
 
     await server._boost_timer(1200.0)
 
-    assert sent_commands == ["BOOST"]
+    assert sent_commands == ["MODE_SLEEP", "SPEED_1", "HUMIDITY_2", "MODE_NIGHT"]
     assert state == {**previous_state, "boost": False}
     assert state["boost"] is False
