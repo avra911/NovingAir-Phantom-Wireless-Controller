@@ -8,6 +8,7 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true,
       "package": "com.samezenbody.PhantomRemote"
     },
     "web": {
@@ -26,6 +27,7 @@
       "eas": {
         "projectId": "f81ce4bc-bd28-46cc-81a4-98a487d8962c"
       }
-    }
+    },
+    "owner": "same-zen-bodys-organization"
   }
 }
