@@ -2,14 +2,15 @@
   "expo": {
     "name": "PhantomRemote",
     "slug": "PhantomRemote",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "scheme": "phantomremote",
     "userInterfaceStyle": "automatic",
     "android": {
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "package": "com.samezenbody.PhantomRemote"
+      "package": "com.samezenbody.PhantomRemote",
+      "versionCode": 2
     },
     "web": {
       "output": "static"
