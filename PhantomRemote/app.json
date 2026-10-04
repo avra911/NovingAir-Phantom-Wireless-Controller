@@ -7,7 +7,8 @@
     "scheme": "phantomremote",
     "userInterfaceStyle": "automatic",
     "android": {
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.samezenbody.PhantomRemote"
     },
     "web": {
       "output": "static"
@@ -19,6 +20,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f81ce4bc-bd28-46cc-81a4-98a487d8962c"
+      }
     }
   }
 }
