@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { OledColors } from '../constants/theme';
+import { ExternalLink } from '../components/external-link';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -152,7 +153,8 @@ export interface HistoryResponse {
   history: HistorySample[];
 }
 
-type AppView = 'home' | 'remote' | 'diagnostics';
+type AppView = 'home' | 'diagnostics';
+type HomeTab = 'sensors' | 'remote';
 
 interface AutomationLogResponse {
   lines: string[];
@@ -461,6 +463,7 @@ export default function Index() {
   const [controlsLocked, setControlsLocked] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [activeView, setActiveView] = useState<AppView>('home');
+  const [homeTab, setHomeTab] = useState<HomeTab>('sensors');
   const [menuOpen, setMenuOpen] = useState(false);
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [logAvailable, setLogAvailable] = useState(true);
@@ -677,7 +680,6 @@ export default function Index() {
   const updateLabel = lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Waiting for sensor';
   const viewTitles: Record<AppView, string> = {
     home: 'Home air, made clear.',
-    remote: 'Phantom remote.',
     diagnostics: 'System diagnostics.',
   };
   const speedControlEnabled = !phantomState.automation_enabled
@@ -728,8 +730,31 @@ export default function Index() {
         </View>
         <Text style={styles.updatedText}>{updateLabel} · Phantom {phantomState.mode.toLowerCase()}</Text>
 
+        <View style={[styles.homeTabs, activeView !== 'home' && styles.hiddenView]} accessibilityRole="tablist">
+          <TouchableOpacity
+            style={[styles.homeTab, homeTab === 'sensors' && styles.homeTabActive]}
+            onPress={() => setHomeTab('sensors')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: homeTab === 'sensors' }}
+            accessibilityLabel="Air quality and sensors"
+          >
+            <Ionicons name="analytics-outline" size={17} color={homeTab === 'sensors' ? '#7ef2d0' : '#657673'} />
+            <Text style={[styles.homeTabText, homeTab === 'sensors' && styles.homeTabTextActive]}>Sensors</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.homeTab, homeTab === 'remote' && styles.homeTabActive]}
+            onPress={() => setHomeTab('remote')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: homeTab === 'remote' }}
+            accessibilityLabel="Phantom remote controls"
+          >
+            <Ionicons name="game-controller-outline" size={17} color={homeTab === 'remote' ? '#7ef2d0' : '#657673'} />
+            <Text style={[styles.homeTabText, homeTab === 'remote' && styles.homeTabTextActive]}>Remote</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* --- AIR QUALITY MONITOR PANEL --- */}
-        <View style={[styles.sensorCard, activeView !== 'home' && styles.hiddenView]}>
+        <View style={[styles.sensorCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons name="molecule-co2" size={24} color={getCO2Color(sensorMetrics.co2_ppm)} />
@@ -848,7 +873,7 @@ export default function Index() {
         </View>
 
         {/* --- ZIGBEE SENSORS PANEL --- */}
-        <View style={[styles.zigbeeContainer, activeView !== 'home' && styles.hiddenView]}>
+        <View style={[styles.zigbeeContainer, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           {/* Indoor Sensor Box */}
           <View style={styles.zigbeeCard}>
             <View style={styles.zigbeeCardHeader}>
@@ -934,7 +959,7 @@ export default function Index() {
           </View>
         </View>
 
-        <View style={[styles.currentStatusCard, activeView !== 'home' && styles.hiddenView]}>
+        <View style={[styles.currentStatusCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           <View style={styles.currentStatusHeader}>
             <View>
               <Text style={styles.sectionEyebrow}>CURRENT STATUS</Text>
@@ -971,7 +996,7 @@ export default function Index() {
         </View>
 
         {/* --- HRV LCD STATUS SCREEN --- */}
-        <View style={[styles.lcdScreen, activeView !== 'remote' && styles.hiddenView]}>
+        <View style={[styles.lcdScreen, (activeView !== 'home' || homeTab !== 'remote') && styles.hiddenView]}>
           <Text style={styles.lcdHeaderTitle}>PHANTOM UNIT STATUS</Text>
           <View style={styles.controlNotice}>
             <Ionicons
@@ -1220,6 +1245,12 @@ export default function Index() {
           )}
           <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
         </View>
+        <View style={styles.appFooter}>
+          <Text style={styles.appFooterLabel}>NOVINGAIR PHANTOM WIRELESS CONTROLLER</Text>
+          <ExternalLink href="https://github.com/avra911/NovingAir-Phantom-Wireless-Controller">
+            <Text style={styles.appFooterLink}>View project on GitHub</Text>
+          </ExternalLink>
+        </View>
       </ScrollView>
 
       <Modal
@@ -1287,7 +1318,6 @@ export default function Index() {
             </View>
             {([
               ['home', 'Home', 'Air quality and sensors', 'home-outline'],
-              ['remote', 'Remote', 'Control Phantom unit', 'game-controller-outline'],
               ['diagnostics', 'Diagnostics', 'Automation and system logs', 'bug-outline'],
             ] as const).map(([view, label, detail, icon]) => (
               <TouchableOpacity
@@ -1360,6 +1390,19 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     marginBottom: 16,
   },
+  appFooter: {
+    width: '100%',
+    maxWidth: 760,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#1b2926',
+    marginTop: 4,
+    paddingTop: 16,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  appFooterLabel: { color: '#657673', fontSize: 9, fontWeight: '700', textAlign: 'center' },
+  appFooterLink: { color: '#7ef2d0', fontSize: 11, fontWeight: '700', textAlign: 'center' },
   
   sensorCard: {
     width: '100%',
@@ -1422,6 +1465,31 @@ const styles = StyleSheet.create({
   metricValue: { color: '#f4faf8', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
   unit: { fontSize: 8, color: '#9aa9a7' },
   hiddenView: { display: 'none' },
+  homeTabs: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    padding: 3,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1b2926',
+    borderRadius: 8,
+    backgroundColor: '#0a0d0d',
+  },
+  homeTab: {
+    flex: 1,
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 5,
+  },
+  homeTabActive: { backgroundColor: '#06241d' },
+  homeTabText: { color: '#657673', fontSize: 11, fontWeight: '700' },
+  homeTabTextActive: { color: '#7ef2d0' },
 
   diagnosticsCard: {
     width: '100%',
