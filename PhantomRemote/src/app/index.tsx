@@ -14,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { OledColors } from '../constants/theme';
-import { ExternalLink } from '../components/external-link';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -153,37 +152,7 @@ export interface HistoryResponse {
   history: HistorySample[];
 }
 
-interface PhantomHistoryEntry {
-  changed_at: string;
-  change_type: string;
-  mode: string | null;
-  flux: string | null;
-  speed: number | null;
-  night: boolean | number;
-  boost: boolean | number;
-  estimated_power_w: number | null;
-  estimated_energy_wh: number | null;
-}
-
-interface PhantomHistoryResponse {
-  history: PhantomHistoryEntry[];
-}
-
-interface ConsumptionBucket {
-  bucket_start: string;
-  duration_seconds: number;
-  energy_wh: number | null;
-  coverage_pct: number;
-}
-
-interface PhantomConsumptionSummary {
-  hourly: ConsumptionBucket[];
-  daily: ConsumptionBucket[];
-}
-
-type AppView = 'home' | 'diagnostics';
-type HomeTab = 'sensors' | 'remote';
-type DiagnosticsTab = 'power' | 'logs';
+type AppView = 'home' | 'remote' | 'diagnostics';
 
 interface AutomationLogResponse {
   lines: string[];
@@ -360,6 +329,11 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
   const canPageOlder = boundedWindowStart > 0;
   const canPageNewer = boundedWindowStart < latestWindowStart;
 
+  useEffect(() => {
+    setSelectedIndex(null);
+    setWindowStart(Math.max(samples.length - VISIBLE_CHART_SAMPLES, 0));
+  }, [config.key, samples.length]);
+
   const showOlderWindow = () => {
     setSelectedIndex(null);
     setWindowStart((currentStart) => Math.max(currentStart - VISIBLE_CHART_SAMPLES, 0));
@@ -475,257 +449,6 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
   );
 }
 
-const isHistoryFlagEnabled = (value: boolean | number) => Boolean(Number(value));
-
-const getPhantomFluxLabel = (flux: string | null) => {
-  switch (flux) {
-    case 'NORTH_SOUTH': return 'North-South';
-    case 'SOUTH_NORTH': return 'South-North';
-    case 'INTAKE': return 'INTAKE';
-    case 'EXTRACT': return 'EXTRACT';
-    default: return null;
-  }
-};
-
-const getPhantomFluxShortLabel = (flux: string | null) => {
-  switch (flux) {
-    case 'NORTH_SOUTH': return 'N-S';
-    case 'SOUTH_NORTH': return 'S-N';
-    case 'INTAKE': return 'IN';
-    case 'EXTRACT': return 'EX';
-    default: return '--';
-  }
-};
-
-const getPhantomModeColor = (mode: string | null) => {
-  switch (mode) {
-    case 'AUTO': return '#7ef2d0';
-    case 'SLEEP': return '#f4b860';
-    case 'MANUAL': return '#64b5f6';
-    default: return '#8e9aaf';
-  }
-};
-
-function ConsumptionMiniChart({
-  title,
-  buckets,
-  interval,
-}: {
-  title: string;
-  buckets: ConsumptionBucket[];
-  interval: 'hour' | 'day';
-}) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const selectedBucket = buckets[
-    selectedIndex ?? Math.max(0, buckets.length - 1)
-  ];
-  const totalEnergyWh = buckets.reduce(
-    (total, bucket) => total + (bucket.energy_wh ?? 0),
-    0,
-  );
-  const totalDurationSeconds = buckets.reduce(
-    (total, bucket) => total + bucket.duration_seconds,
-    0,
-  );
-  const coveredSeconds = buckets.reduce(
-    (total, bucket) => total + bucket.duration_seconds * bucket.coverage_pct / 100,
-    0,
-  );
-  const coveragePercent = totalDurationSeconds > 0
-    ? coveredSeconds / totalDurationSeconds * 100
-    : 0;
-  const maxEnergyWh = Math.max(...buckets.map((bucket) => bucket.energy_wh ?? 0), 0.01);
-  const formatBucketLabel = (bucket: ConsumptionBucket) => {
-    if (interval === 'day') return bucket.bucket_start.slice(5);
-    return new Date(bucket.bucket_start).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-  const tickIndices = buckets.length > 1
-    ? [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]
-    : [0];
-
-  return (
-    <View
-      style={[
-        styles.consumptionSummaryColumn,
-        interval === 'day' && styles.consumptionSummaryColumnDaily,
-      ]}
-    >
-      <View style={styles.consumptionSummaryHeader}>
-        <Text style={styles.consumptionSummaryTitle}>{title}</Text>
-        <Text style={styles.consumptionSummaryTotal}>
-          {coveredSeconds > 0 ? `${totalEnergyWh.toFixed(1)} Wh` : '-- Wh'}
-        </Text>
-      </View>
-      <Text style={styles.consumptionSummaryCoverage}>
-        ESTIMATE · {coveragePercent.toFixed(0)}% COVERAGE
-      </Text>
-      {selectedBucket && (
-        <Text style={styles.consumptionSummarySelection} numberOfLines={1}>
-          {formatBucketLabel(selectedBucket)} · {selectedBucket.energy_wh === null
-            ? '-- Wh'
-            : `${selectedBucket.energy_wh.toFixed(2)} Wh`}
-          {' · '}{selectedBucket.coverage_pct.toFixed(0)}%
-        </Text>
-      )}
-      <View style={styles.consumptionSummaryPlot}>
-        {buckets.map((bucket, index) => {
-          const barHeight = bucket.energy_wh === null
-            ? '0%'
-            : `${Math.max(4, bucket.energy_wh / maxEnergyWh * 100)}%` as `${number}%`;
-          const isSelected = (selectedIndex ?? buckets.length - 1) === index;
-          return (
-            <TouchableOpacity
-              key={`${bucket.bucket_start}-${index}`}
-              style={styles.consumptionSummaryBarButton}
-              onPress={() => setSelectedIndex(index)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
-              accessibilityLabel={`${formatBucketLabel(bucket)}, ${bucket.energy_wh === null ? 'no estimate' : `${bucket.energy_wh.toFixed(2)} watt hours`}, ${bucket.coverage_pct.toFixed(0)} percent coverage`}
-            >
-              <View style={styles.consumptionSummaryBarTrack}>
-                <View
-                  style={[
-                    styles.consumptionSummaryBar,
-                    { height: barHeight },
-                    isSelected && styles.consumptionSummaryBarSelected,
-                  ]}
-                />
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <View style={styles.consumptionSummaryTicks}>
-        {tickIndices.map((index, tickIndex) => (
-          <Text
-            key={`${title}-tick-${index}`}
-            style={[
-              styles.consumptionSummaryTick,
-              tickIndex === 1 && styles.consumptionSummaryTickCentered,
-              tickIndex === tickIndices.length - 1 && styles.consumptionSummaryTickRight,
-            ]}
-          >
-            {buckets[index] ? formatBucketLabel(buckets[index]) : '--'}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function PhantomHistoryChart({
-  events,
-  consumption,
-}: {
-  events: PhantomHistoryEntry[];
-  consumption: PhantomConsumptionSummary;
-}) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const visibleEvents = events.slice(-36);
-  const selectedEvent = selectedIndex === null
-    ? visibleEvents[visibleEvents.length - 1]
-    : visibleEvents[selectedIndex] ?? visibleEvents[visibleEvents.length - 1];
-  const totalEnergyWh = events.reduce(
-    (total, event) => total + (event.estimated_energy_wh ?? 0),
-    0,
-  );
-  const maxIntervalEnergyWh = Math.max(
-    ...visibleEvents.map((event) => event.estimated_energy_wh ?? 0),
-    0.01,
-  );
-
-  return (
-    <View>
-      <View style={styles.diagnosticsHeader}>
-        <View>
-          <Text style={styles.sectionEyebrow}>PHANTOM POWER</Text>
-          <Text style={styles.diagnosticsTitle}>Speed & energy history</Text>
-        </View>
-        <View style={styles.phantomEnergyTotal}>
-          <Text style={styles.phantomEnergyLabel}>RECORDED ESTIMATE</Text>
-          <Text style={styles.phantomEnergyValue}>{totalEnergyWh.toFixed(2)} Wh</Text>
-        </View>
-      </View>
-
-      {selectedEvent ? (
-        <View style={styles.phantomSelectedEvent}>
-          <View style={styles.phantomSelectedAttributes}>
-            <View style={styles.phantomSelectedAttribute}>
-              <View style={[styles.phantomModeDot, { backgroundColor: getPhantomModeColor(selectedEvent.mode) }]} />
-              <Text style={styles.phantomSelectedModeText}>MODE {selectedEvent.mode ?? 'UNKNOWN'}</Text>
-            </View>
-            <Text style={styles.phantomSelectedAttributeText}>
-              FLUX {getPhantomFluxLabel(selectedEvent.flux) ?? 'NONE'}
-            </Text>
-            <Text style={styles.phantomSelectedSpeed}>SPEED {selectedEvent.speed ?? '--'}</Text>
-          </View>
-          <Text style={styles.phantomSelectedFlags}>
-            NIGHT {isHistoryFlagEnabled(selectedEvent.night) ? 'ON' : 'OFF'}
-            {'  ·  '}BOOST {isHistoryFlagEnabled(selectedEvent.boost) ? 'ON' : 'OFF'}
-          </Text>
-          <Text style={styles.phantomSelectedDetails}>
-            {selectedEvent.estimated_power_w === null ? '--' : selectedEvent.estimated_power_w.toFixed(1)} W
-            {'  ·  '}
-            {selectedEvent.estimated_energy_wh === null ? '--' : selectedEvent.estimated_energy_wh.toFixed(2)} Wh in interval
-            {'  ·  '}
-            {formatHistoryTime(selectedEvent.changed_at)}
-          </Text>
-        </View>
-      ) : (
-        <Text style={styles.diagnosticsEmpty}>No Phantom mode or speed changes recorded yet.</Text>
-      )}
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.phantomHistoryBars}
-      >
-        {visibleEvents.map((event, index) => {
-          const power = event.estimated_power_w ?? 0;
-          const intervalEnergy = event.estimated_energy_wh ?? 0;
-          const barHeight = event.estimated_energy_wh === null
-            ? '0%'
-            : `${Math.max(8, (intervalEnergy / maxIntervalEnergyWh) * 100)}%` as `${number}%`;
-          const isSelected = selectedIndex === index || (selectedIndex === null && index === visibleEvents.length - 1);
-          return (
-            <TouchableOpacity
-              key={`${event.changed_at}-${event.change_type}-${index}`}
-              style={styles.phantomHistoryBarItem}
-              onPress={() => setSelectedIndex(index)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
-              accessibilityLabel={`Mode ${event.mode ?? 'unknown'}, flux ${getPhantomFluxLabel(event.flux) ?? 'none'}, speed ${event.speed ?? 'unknown'}, night ${isHistoryFlagEnabled(event.night) ? 'on' : 'off'}, boost ${isHistoryFlagEnabled(event.boost) ? 'on' : 'off'}, ${event.estimated_power_w === null ? 'unknown' : `${power.toFixed(1)} watts`}, ${formatHistoryTime(event.changed_at)}`}
-            >
-              <Text style={styles.phantomBarSpeed}>S{event.speed ?? '--'}</Text>
-              <View style={styles.phantomBarTrack}>
-                <View
-                  style={[
-                    styles.phantomBar,
-                    { height: barHeight, backgroundColor: getPhantomModeColor(event.mode) },
-                    isSelected && styles.phantomBarSelected,
-                  ]}
-                />
-              </View>
-              <Text style={styles.phantomBarMode}>{event.mode === 'MANUAL' ? 'MAN' : event.mode ?? '--'}</Text>
-              <Text style={styles.phantomBarFlux}>{getPhantomFluxShortLabel(event.flux)}</Text>
-              <Text style={styles.phantomBarFlag}>{isHistoryFlagEnabled(event.night) ? 'NIGHT' : ''}</Text>
-              <Text style={styles.phantomBarFlag}>{isHistoryFlagEnabled(event.boost) ? 'BOOST' : ''}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-      <View style={styles.consumptionSummaryGrid}>
-        <ConsumptionMiniChart title="LAST 24 HOURS" buckets={consumption.hourly} interval="hour" />
-        <ConsumptionMiniChart title="LAST 30 DAYS" buckets={consumption.daily} interval="day" />
-      </View>
-      <Text style={styles.phantomEstimateNote}>Rated estimate uses EVO 160 Active/Wireless figures (4.2, 5.5, 6.7 W; night 3.9 W). BOOST is estimated at maximum speed 3 (6.7 W); flux is shown separately.</Text>
-    </View>
-  );
-}
-
 export default function Index() {
   const [phantomState, setPhantomState] = useState<PhantomState>(DEFAULT_PHANTOM);
   const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics>(DEFAULT_SENSOR);
@@ -734,22 +457,25 @@ export default function Index() {
   const [indoorMetrics, setIndoorMetrics] = useState<EnvironmentalSensor | null>(null);
   const [outdoorMetrics, setOutdoorMetrics] = useState<EnvironmentalSensor | null>(null);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
-  const [phantomHistory, setPhantomHistory] = useState<PhantomHistoryEntry[]>([]);
-  const [phantomConsumption, setPhantomConsumption] = useState<PhantomConsumptionSummary>({
-    hourly: [],
-    daily: [],
-  });
   const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
   const [controlsLocked, setControlsLocked] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [activeView, setActiveView] = useState<AppView>('home');
-  const [homeTab, setHomeTab] = useState<HomeTab>('sensors');
-  const [diagnosticsTab, setDiagnosticsTab] = useState<DiagnosticsTab>('power');
   const [menuOpen, setMenuOpen] = useState(false);
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [logAvailable, setLogAvailable] = useState(true);
   const [logLoading, setLogLoading] = useState(false);
   const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
+
+  useEffect(() => {
+    fetchState();
+    fetchHistory();
+    const interval = setInterval(() => {
+      fetchState();
+      fetchHistory();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (controlsLocked) return;
@@ -788,47 +514,6 @@ export default function Index() {
     }
   };
 
-  const fetchPhantomHistory = async () => {
-    try {
-      const res = await fetch(`${API_URL}/phantom-history?limit=${HISTORY_LIMIT}`);
-      if (res.ok) {
-        const data: PhantomHistoryResponse = await res.json();
-        setPhantomHistory(data.history ?? []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch Phantom history:', err);
-    }
-  };
-
-  const fetchPhantomConsumption = async () => {
-    try {
-      const res = await fetch(`${API_URL}/phantom-consumption`);
-      if (res.ok) {
-        const data: PhantomConsumptionSummary = await res.json();
-        setPhantomConsumption(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch Phantom consumption summary:', err);
-    }
-  };
-
-  useEffect(() => {
-    const refresh = () => {
-      void fetchState();
-      void fetchHistory();
-      void fetchPhantomHistory();
-      void fetchPhantomConsumption();
-    };
-    const initialRefresh = setTimeout(refresh, 0);
-    const interval = setInterval(() => {
-      refresh();
-    }, 10000);
-    return () => {
-      clearTimeout(initialRefresh);
-      clearInterval(interval);
-    };
-  }, []);
-
   const fetchAutomationLog = async () => {
     setLogLoading(true);
     try {
@@ -863,8 +548,6 @@ export default function Index() {
       setSensorMetrics(updatedData.sensor);
       setIndoorMetrics(updatedData.indoor ?? null);
       setOutdoorMetrics(updatedData.outdoor ?? null);
-      await fetchPhantomHistory();
-      await fetchPhantomConsumption();
     } catch (err) {
       console.error(`Error executing action ${actionKey}:`, err);
       Alert.alert("API Error", "Unable to communicate with Phantom Controller backend.");
@@ -994,6 +677,7 @@ export default function Index() {
   const updateLabel = lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Waiting for sensor';
   const viewTitles: Record<AppView, string> = {
     home: 'Home air, made clear.',
+    remote: 'Phantom remote.',
     diagnostics: 'System diagnostics.',
   };
   const speedControlEnabled = !phantomState.automation_enabled
@@ -1044,31 +728,8 @@ export default function Index() {
         </View>
         <Text style={styles.updatedText}>{updateLabel} · Phantom {phantomState.mode.toLowerCase()}</Text>
 
-        <View style={[styles.segmentedTabs, activeView !== 'home' && styles.hiddenView]} accessibilityRole="tablist">
-          <TouchableOpacity
-            style={[styles.segmentedTab, homeTab === 'sensors' && styles.segmentedTabActive]}
-            onPress={() => setHomeTab('sensors')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: homeTab === 'sensors' }}
-            accessibilityLabel="Air quality and sensor dashboard"
-          >
-            <Ionicons name="analytics-outline" size={17} color={homeTab === 'sensors' ? '#7ef2d0' : '#657673'} />
-            <Text style={[styles.segmentedTabText, homeTab === 'sensors' && styles.segmentedTabTextActive]}>Sensors</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.segmentedTab, homeTab === 'remote' && styles.segmentedTabActive]}
-            onPress={() => setHomeTab('remote')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: homeTab === 'remote' }}
-            accessibilityLabel="Phantom remote controls"
-          >
-            <Ionicons name="game-controller-outline" size={17} color={homeTab === 'remote' ? '#7ef2d0' : '#657673'} />
-            <Text style={[styles.segmentedTabText, homeTab === 'remote' && styles.segmentedTabTextActive]}>Remote</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* --- AIR QUALITY MONITOR PANEL --- */}
-        <View style={[styles.sensorCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
+        <View style={[styles.sensorCard, activeView !== 'home' && styles.hiddenView]}>
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons name="molecule-co2" size={24} color={getCO2Color(sensorMetrics.co2_ppm)} />
@@ -1187,7 +848,7 @@ export default function Index() {
         </View>
 
         {/* --- ZIGBEE SENSORS PANEL --- */}
-        <View style={[styles.zigbeeContainer, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
+        <View style={[styles.zigbeeContainer, activeView !== 'home' && styles.hiddenView]}>
           {/* Indoor Sensor Box */}
           <View style={styles.zigbeeCard}>
             <View style={styles.zigbeeCardHeader}>
@@ -1273,7 +934,7 @@ export default function Index() {
           </View>
         </View>
 
-        <View style={[styles.currentStatusCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
+        <View style={[styles.currentStatusCard, activeView !== 'home' && styles.hiddenView]}>
           <View style={styles.currentStatusHeader}>
             <View>
               <Text style={styles.sectionEyebrow}>CURRENT STATUS</Text>
@@ -1310,7 +971,7 @@ export default function Index() {
         </View>
 
         {/* --- HRV LCD STATUS SCREEN --- */}
-        <View style={[styles.lcdScreen, (activeView !== 'home' || homeTab !== 'remote') && styles.hiddenView]}>
+        <View style={[styles.lcdScreen, activeView !== 'remote' && styles.hiddenView]}>
           <Text style={styles.lcdHeaderTitle}>PHANTOM UNIT STATUS</Text>
           <View style={styles.controlNotice}>
             <Ionicons
@@ -1525,79 +1186,39 @@ export default function Index() {
           </View>
         </View>
 
-        <View style={[styles.diagnosticsSection, activeView !== 'diagnostics' && styles.hiddenView]}>
-          <View style={styles.segmentedTabs} accessibilityRole="tablist">
+        <View style={[styles.diagnosticsCard, activeView !== 'diagnostics' && styles.hiddenView]}>
+          <View style={styles.diagnosticsHeader}>
+            <View>
+              <Text style={styles.sectionEyebrow}>AUTOMATION LOG</Text>
+              <Text style={styles.diagnosticsTitle}>Recent system activity</Text>
+            </View>
             <TouchableOpacity
-              style={[styles.segmentedTab, diagnosticsTab === 'power' && styles.segmentedTabActive]}
-              onPress={() => setDiagnosticsTab('power')}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: diagnosticsTab === 'power' }}
-              accessibilityLabel="Power charts"
+              style={styles.refreshButton}
+              onPress={fetchAutomationLog}
+              disabled={logLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh automation log"
             >
-              <Ionicons name="bar-chart-outline" size={17} color={diagnosticsTab === 'power' ? '#7ef2d0' : '#657673'} />
-              <Text style={[styles.segmentedTabText, diagnosticsTab === 'power' && styles.segmentedTabTextActive]}>Power</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.segmentedTab, diagnosticsTab === 'logs' && styles.segmentedTabActive]}
-              onPress={() => {
-                setDiagnosticsTab('logs');
-                void fetchAutomationLog();
-              }}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: diagnosticsTab === 'logs' }}
-              accessibilityLabel="Automation logs"
-            >
-              <Ionicons name="document-text-outline" size={17} color={diagnosticsTab === 'logs' ? '#7ef2d0' : '#657673'} />
-              <Text style={[styles.segmentedTabText, diagnosticsTab === 'logs' && styles.segmentedTabTextActive]}>Logs</Text>
+              {logLoading ? <ActivityIndicator size="small" color="#7ef2d0" /> : <Ionicons name="refresh" size={18} color="#7ef2d0" />}
             </TouchableOpacity>
           </View>
-
-          {diagnosticsTab === 'power' ? (
-            <View style={styles.diagnosticsCard}>
-              <PhantomHistoryChart events={phantomHistory} consumption={phantomConsumption} />
-            </View>
+          {!logAvailable ? (
+            <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
+          ) : automationLog.length === 0 ? (
+            <Text style={styles.diagnosticsEmpty}>No automation entries yet.</Text>
           ) : (
-            <View style={styles.diagnosticsCard}>
-              <View style={styles.diagnosticsHeader}>
-                <View>
-                  <Text style={styles.sectionEyebrow}>AUTOMATION LOG</Text>
-                  <Text style={styles.diagnosticsTitle}>Recent system activity</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.refreshButton}
-                  onPress={fetchAutomationLog}
-                  disabled={logLoading}
-                  accessibilityRole="button"
-                  accessibilityLabel="Refresh automation log"
-                >
-                  {logLoading ? <ActivityIndicator size="small" color="#7ef2d0" /> : <Ionicons name="refresh" size={18} color="#7ef2d0" />}
-                </TouchableOpacity>
-              </View>
-              {!logAvailable ? (
-                <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
-              ) : automationLog.length === 0 ? (
-                <Text style={styles.diagnosticsEmpty}>No automation entries yet.</Text>
-              ) : (
-                <ScrollView
-                  style={styles.logScroll}
-                  contentContainerStyle={styles.logScrollContent}
-                  showsVerticalScrollIndicator
-                  nestedScrollEnabled
-                >
-                  {automationLog.map((line, index) => (
-                    <Text key={`${index}-${line}`} style={styles.logLine}>{formatAutomationLogLine(line)}</Text>
-                  ))}
-                </ScrollView>
-              )}
-              <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
-            </View>
+            <ScrollView
+              style={styles.logScroll}
+              contentContainerStyle={styles.logScrollContent}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+              {automationLog.map((line, index) => (
+                <Text key={`${index}-${line}`} style={styles.logLine}>{formatAutomationLogLine(line)}</Text>
+              ))}
+            </ScrollView>
           )}
-        </View>
-        <View style={styles.appFooter}>
-          <Text style={styles.appFooterLabel}>NOVINGAIR PHANTOM WIRELESS CONTROLLER</Text>
-          <ExternalLink href="https://github.com/avra911/NovingAir-Phantom-Wireless-Controller">
-            <Text style={styles.appFooterLink}>View project on GitHub</Text>
-          </ExternalLink>
+          <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
         </View>
       </ScrollView>
 
@@ -1644,11 +1265,7 @@ export default function Index() {
                   );
                 })}
               </ScrollView>
-              <MiniHistoryChart
-                key={activeHistoryConfig.key}
-                config={activeHistoryConfig}
-                samples={historySamples}
-              />
+              <MiniHistoryChart config={activeHistoryConfig} samples={historySamples} />
               <Text style={styles.historyFootnote}>{historySamples.length} stored minutes · latest {VISIBLE_CHART_SAMPLES} min shown</Text>
             </View>
           </SafeAreaView>
@@ -1669,8 +1286,9 @@ export default function Index() {
               </TouchableOpacity>
             </View>
             {([
-              ['home', 'Home', 'Air quality, sensors and Phantom controls', 'home-outline'],
-              ['diagnostics', 'Diagnostics', 'Automation, energy and system logs', 'bug-outline'],
+              ['home', 'Home', 'Air quality and sensors', 'home-outline'],
+              ['remote', 'Remote', 'Control Phantom unit', 'game-controller-outline'],
+              ['diagnostics', 'Diagnostics', 'Automation and system logs', 'bug-outline'],
             ] as const).map(([view, label, detail, icon]) => (
               <TouchableOpacity
                 key={view}
@@ -1678,7 +1296,7 @@ export default function Index() {
                 onPress={() => {
                   setActiveView(view);
                   setMenuOpen(false);
-                  if (view === 'diagnostics' && diagnosticsTab === 'logs') fetchAutomationLog();
+                  if (view === 'diagnostics') fetchAutomationLog();
                 }}
                 accessibilityRole="button"
                 accessibilityState={{ selected: activeView === view }}
@@ -1742,19 +1360,6 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     marginBottom: 16,
   },
-  appFooter: {
-    width: '100%',
-    maxWidth: 760,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#1b2926',
-    marginTop: 4,
-    paddingTop: 16,
-    paddingBottom: 8,
-    gap: 6,
-  },
-  appFooterLabel: { color: '#657673', fontSize: 9, fontWeight: '700', textAlign: 'center' },
-  appFooterLink: { color: '#7ef2d0', fontSize: 11, fontWeight: '700', textAlign: 'center' },
   
   sensorCard: {
     width: '100%',
@@ -1828,32 +1433,6 @@ const styles = StyleSheet.create({
     padding: 18,
     marginBottom: 24,
   },
-  diagnosticsSection: { width: '100%', maxWidth: 760, alignItems: 'center' },
-  segmentedTabs: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    padding: 3,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#1b2926',
-    borderRadius: 8,
-    backgroundColor: '#0a0d0d',
-  },
-  segmentedTab: {
-    flex: 1,
-    height: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    borderRadius: 5,
-  },
-  segmentedTabActive: { backgroundColor: '#06241d' },
-  segmentedTabText: { color: '#657673', fontSize: 11, fontWeight: '700' },
-  segmentedTabTextActive: { color: '#7ef2d0' },
   diagnosticsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   diagnosticsTitle: { color: '#f4faf8', fontSize: 18, fontWeight: '700', marginTop: 3 },
   refreshButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: '#1b2926', alignItems: 'center', justifyContent: 'center' },
@@ -1862,45 +1441,6 @@ const styles = StyleSheet.create({
   logScrollContent: { paddingTop: 12, paddingBottom: 18 },
   logLine: { color: '#9aa9a7', fontSize: 11, lineHeight: 18, fontFamily: 'monospace', flexShrink: 1, paddingBottom: 2 },
   diagnosticsFootnote: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 10 },
-  phantomEnergyTotal: { alignItems: 'flex-end' },
-  phantomEnergyLabel: { color: '#657673', fontSize: 8, fontWeight: '800' },
-  phantomEnergyValue: { color: '#7ef2d0', fontSize: 14, fontFamily: 'monospace', fontWeight: '700', marginTop: 3 },
-  phantomSelectedEvent: { backgroundColor: '#050707', borderRadius: 8, padding: 10, marginBottom: 10 },
-  phantomSelectedAttributes: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  phantomSelectedAttribute: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
-  phantomModeDot: { width: 7, height: 7, borderRadius: 4 },
-  phantomSelectedModeText: { flex: 1, flexShrink: 1, color: '#f4faf8', fontSize: 11, fontWeight: '800' },
-  phantomSelectedAttributeText: { color: '#9aa9a7', fontSize: 10, fontWeight: '700', flexShrink: 1 },
-  phantomSelectedSpeed: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace', marginLeft: 'auto' },
-  phantomSelectedFlags: { color: '#9aa9a7', fontSize: 9, fontFamily: 'monospace', marginTop: 5 },
-  phantomSelectedDetails: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace', marginTop: 6 },
-  phantomHistoryBars: { alignItems: 'stretch', gap: 5, paddingVertical: 4 },
-  phantomHistoryBarItem: { width: 54, alignItems: 'center', justifyContent: 'flex-end' },
-  phantomBarSpeed: { color: '#9aa9a7', fontSize: 9, fontFamily: 'monospace', marginBottom: 3 },
-  phantomBarTrack: { width: 22, height: 112, justifyContent: 'flex-end', backgroundColor: '#111716', borderRadius: 3, overflow: 'hidden' },
-  phantomBar: { width: '100%', borderTopLeftRadius: 3, borderTopRightRadius: 3, opacity: 0.72 },
-  phantomBarSelected: { opacity: 1, borderWidth: 1, borderColor: '#f4faf8' },
-  phantomBarMode: { color: '#657673', fontSize: 8, fontWeight: '700', marginTop: 4 },
-  phantomBarFlux: { color: '#657673', fontSize: 8, fontWeight: '700', marginTop: 2 },
-  phantomBarFlag: { color: '#f4b860', fontSize: 7, fontWeight: '800', minHeight: 9, marginTop: 1 },
-  consumptionSummaryGrid: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  consumptionSummaryColumn: { flex: 1, minWidth: 0 },
-  consumptionSummaryColumnDaily: { borderLeftWidth: 1, borderLeftColor: '#1b2926', paddingLeft: 10 },
-  consumptionSummaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 },
-  consumptionSummaryTitle: { color: '#9aa9a7', fontSize: 9, fontWeight: '800', flexShrink: 1 },
-  consumptionSummaryTotal: { color: '#7ef2d0', fontSize: 11, fontWeight: '700', fontFamily: 'monospace' },
-  consumptionSummaryCoverage: { color: '#657673', fontSize: 7, fontWeight: '700', marginTop: 3 },
-  consumptionSummarySelection: { color: '#9aa9a7', fontSize: 8, fontFamily: 'monospace', marginTop: 4 },
-  consumptionSummaryPlot: { height: 68, flexDirection: 'row', alignItems: 'stretch', gap: 1, marginTop: 5 },
-  consumptionSummaryBarButton: { flex: 1, minWidth: 2, alignItems: 'center', justifyContent: 'flex-end' },
-  consumptionSummaryBarTrack: { width: '100%', height: 62, justifyContent: 'flex-end', backgroundColor: '#111716', borderRadius: 2, overflow: 'hidden' },
-  consumptionSummaryBar: { width: '100%', backgroundColor: '#7ef2d0', opacity: 0.72, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
-  consumptionSummaryBarSelected: { opacity: 1 },
-  consumptionSummaryTicks: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  consumptionSummaryTick: { flex: 1, color: '#657673', fontSize: 7, fontFamily: 'monospace' },
-  consumptionSummaryTickCentered: { textAlign: 'center' },
-  consumptionSummaryTickRight: { textAlign: 'right' },
-  phantomEstimateNote: { color: '#657673', fontSize: 9, lineHeight: 14, marginTop: 10 },
 
   // --- HISTORY CHARTS ---
   historyModalScreen: {

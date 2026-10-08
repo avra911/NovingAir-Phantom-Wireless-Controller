@@ -5,11 +5,6 @@ import pytest
 import server
 
 
-@pytest.fixture(autouse=True)
-def isolate_phantom_history_database(monkeypatch, tmp_path):
-    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "history.sqlite3"))
-
-
 def _state():
     return {
         "mode": "SLEEP",

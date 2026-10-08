@@ -56,25 +56,11 @@ The API listens on `http://0.0.0.0:8000`.
 Useful endpoints:
 
 - `GET /state` returns Phantom state and current sensor metrics.
-- `GET /phantom-consumption` returns 24 hourly and 30 daily estimated consumption buckets with coverage percentages.
 - `POST /command/SPEED` cycles the stored speed state and sends the corresponding IR code.
 - `POST /command/MODE` cycles `AUTO -> SLEEP -> MANUAL`.
 - `POST /command/HUMIDITY`, `/FLUX`, `/NIGHT`, `/BOOST`, and `/RESET` control the remaining functions.
 
 The backend also saves one sensor snapshot per polling cycle into SQLite. By default, history is stored in `data/air_history.sqlite3`. Set `AIR_HISTORY_DB=/path/to/file.sqlite3` in `.env` to use a different location.
-
-Successful Phantom mode, flux, night, boost, and speed transitions are stored in the same database and exposed through `GET /phantom-history`. The Diagnostics view charts estimated energy per state interval, plus last-24-hour and last-30-calendar-day summaries with coverage percentages. Power estimates use the PHANTOM EVO 160 ACTIVE/WIRELESS ratings (4.2 W, 5.5 W, 6.7 W; night 3.9 W); BOOST is estimated as speed 3 (6.7 W). These are not live power measurements; standby power is not included.
-
-When controller automation is off but Phantom mode is `AUTO`, history estimates speed 2 during the day and night speed overnight. The backend records this schedule profile without sending speed commands, leaving fan-speed control to the Phantom's built-in sensor.
-
-To reconstruct Phantom history from the UTC automation log on the NUC, first preview the import, then rerun with `--apply`:
-
-```bash
-python3 import_phantom_history.py --log logs/automation.log --state state.json --db data/air_history.sqlite3
-python3 import_phantom_history.py --log logs/automation.log --state state.json --db data/air_history.sqlite3 --apply
-```
-
-The importer converts log timestamps to Bucharest time, verifies its final replay against `state.json`, and skips events already present. It is safe to rerun; preview mode is read-only.
 
 ## Run the mobile app (Development)
 
