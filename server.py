@@ -21,7 +21,14 @@ from config import (
 )
 
 from gateway import TuyaGateway
-from tasks import AIR_HISTORY_DB, get_air_metrics_history, poll_air_sensor_task
+from tasks import (
+    AIR_HISTORY_DB,
+    get_air_metrics_history,
+    get_phantom_consumption_summary,
+    get_phantom_state_history,
+    poll_air_sensor_task,
+    save_phantom_state_change,
+)
 
 app = FastAPI()
 
@@ -140,6 +147,23 @@ BUTTON_CODES = load_button_codes()
 boost_task: asyncio.Task | None = None
 
 
+def _record_phantom_event(change_type: str, state: dict) -> None:
+    try:
+        save_phantom_state_change(state, change_type, AIR_HISTORY_DB)
+    except Exception:
+        logging.exception("PHANTOM HISTORY SAVE ERROR")
+
+
+def _record_phantom_state_changes(previous_state: dict, current_state: dict) -> None:
+    changed_fields = [
+        field
+        for field in ("mode", "flux", "speed", "night")
+        if previous_state.get(field) != current_state.get(field)
+    ]
+    if changed_fields:
+        _record_phantom_event("+".join(changed_fields), current_state)
+
+
 def _boost_snapshot() -> dict:
     return {
         key: CURRENT_STATE.get(key)
@@ -155,6 +179,10 @@ def _boost_snapshot() -> dict:
 
 
 def _restore_boost_state() -> None:
+    previous_state = {
+        key: CURRENT_STATE.get(key)
+        for key in ("mode", "flux", "speed", "night", "boost")
+    }
     snapshot = CURRENT_STATE.pop("boost_previous_state", None)
     if not isinstance(snapshot, dict):
         snapshot = {
@@ -181,6 +209,9 @@ def _restore_boost_state() -> None:
     CURRENT_STATE.update(snapshot)
     CURRENT_STATE["boost"] = False
     CURRENT_STATE.pop("boost_expires_at", None)
+    _record_phantom_state_changes(previous_state, CURRENT_STATE)
+    if previous_state.get("boost") != CURRENT_STATE.get("boost"):
+        _record_phantom_event("boost", CURRENT_STATE)
     save_state(CURRENT_STATE)
 
 
@@ -200,6 +231,7 @@ async def _start_boost() -> None:
     CURRENT_STATE["boost_previous_state"] = snapshot
     CURRENT_STATE["boost_expires_at"] = expires_at
     CURRENT_STATE["boost"] = True
+    _record_phantom_event("boost", CURRENT_STATE)
     save_state(CURRENT_STATE)
     boost_task = asyncio.create_task(_boost_timer(expires_at))
 
@@ -288,6 +320,16 @@ async def get_history(limit: int = Query(default=1440, ge=1, le=1440)):
         "history": get_air_metrics_history(AIR_HISTORY_DB, limit),
     }
 
+@app.get("/phantom-history")
+async def get_phantom_history(limit: int = Query(default=1440, ge=1, le=1440)):
+    return {
+        "history": get_phantom_state_history(AIR_HISTORY_DB, limit),
+    }
+
+@app.get("/phantom-consumption")
+async def get_phantom_consumption():
+    return get_phantom_consumption_summary(AIR_HISTORY_DB)
+
 @app.get("/logs/automation")
 async def get_automation_log(lines: int = Query(default=120, ge=1, le=500)):
     try:
@@ -314,6 +356,7 @@ async def root():
 @app.post("/command/{action}")
 async def command(action: str):
     action = action.upper()
+    previous_state = _boost_snapshot()
 
     if action == "SPEED":
         if CURRENT_STATE.get("boost"):
@@ -412,6 +455,7 @@ async def command(action: str):
     else:
         raise HTTPException(status_code=400, detail=f"Unknown command: {action}")
 
+    _record_phantom_state_changes(previous_state, CURRENT_STATE)
     save_state(CURRENT_STATE)
     return {
         "phantom": CURRENT_STATE,

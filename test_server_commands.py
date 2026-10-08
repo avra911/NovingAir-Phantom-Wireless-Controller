@@ -3,6 +3,7 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
+from tasks import get_phantom_state_history
 
 for key, value in {
     "IR_DEVICE_ID": "test-ir",
@@ -23,6 +24,11 @@ for key, value in {
     os.environ.setdefault(key, value)
 
 import server
+
+
+@pytest.fixture(autouse=True)
+def isolate_phantom_history_database(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "history.sqlite3"))
 
 
 def test_manual_ir_command_is_logged_without_empty_result(monkeypatch, caplog):
@@ -126,6 +132,17 @@ def test_load_state_remembers_legacy_active_selections(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_phantom_consumption_endpoint_returns_time_buckets(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "missing.sqlite3"))
+
+    summary = await server.get_phantom_consumption()
+
+    assert len(summary["hourly"]) == 24
+    assert len(summary["daily"]) == 30
+    assert all(bucket["energy_wh"] is None for bucket in summary["hourly"])
+
+
+@pytest.mark.asyncio
 async def test_automation_toggle_is_logged(monkeypatch, caplog):
     state = {"automation_enabled": True, "boost": False}
     monkeypatch.setattr(server, "CURRENT_STATE", state)
@@ -135,6 +152,87 @@ async def test_automation_toggle_is_logged(monkeypatch, caplog):
         await server.command("TOGGLE_AUTO")
 
     assert "Remote command TOGGLE_AUTO: disabled" in caplog.messages
+
+
+@pytest.mark.asyncio
+async def test_manual_speed_change_is_recorded(monkeypatch, tmp_path):
+    state = {
+        "mode": "MANUAL",
+        "last_mode": "MANUAL",
+        "speed": 1,
+        "humidity": 3,
+        "flux": "NONE",
+        "night": False,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "history.sqlite3"))
+    monkeypatch.setattr(server, "send_ir_button", lambda _button: None)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+
+    await server.command("SPEED")
+
+    history = get_phantom_state_history(server.AIR_HISTORY_DB)
+    assert len(history) == 1
+    assert history[0]["change_type"] == "speed"
+    assert history[0]["speed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_flux_change_is_recorded_with_none_mode(monkeypatch, tmp_path):
+    state = {
+        "mode": "AUTO",
+        "last_mode": "AUTO",
+        "speed": 2,
+        "humidity": 3,
+        "flux": "NONE",
+        "last_flux": "NORTH_SOUTH",
+        "night": False,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "history.sqlite3"))
+    monkeypatch.setattr(server, "send_ir_button", lambda _button: None)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+
+    await server.command("FLUX")
+
+    history = get_phantom_state_history(server.AIR_HISTORY_DB)
+    assert len(history) == 1
+    assert history[0]["change_type"] == "mode+flux"
+    assert history[0]["mode"] == "NONE"
+    assert history[0]["flux"] == "NORTH_SOUTH"
+
+
+@pytest.mark.asyncio
+async def test_boost_start_and_stop_are_recorded(monkeypatch, tmp_path):
+    state = {
+        "mode": "AUTO",
+        "last_mode": "AUTO",
+        "speed": 2,
+        "humidity": 3,
+        "flux": "NONE",
+        "night": False,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(tmp_path / "history.sqlite3"))
+    monkeypatch.setattr(server, "send_ir_button", lambda _button: None)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+    monkeypatch.setattr(server, "boost_task", None)
+
+    await server._start_boost()
+    await server._stop_boost()
+
+    history = get_phantom_state_history(server.AIR_HISTORY_DB)
+    assert [entry["change_type"] for entry in history] == ["boost", "boost"]
+    assert [entry["boost"] for entry in history] == [1, 0]
+    assert history[0]["speed"] == 3
+    assert history[0]["estimated_power_w"] == 6.7
+    assert history[1]["estimated_power_w"] == 5.5
 
 
 @pytest.mark.asyncio
