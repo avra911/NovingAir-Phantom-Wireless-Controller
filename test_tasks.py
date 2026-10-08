@@ -1,10 +1,19 @@
 import os
 import sqlite3
+import json
 
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
-from tasks import _send_ir, get_air_metrics_history, poll_air_sensor_task, save_air_metrics_snapshot
+from tasks import (
+    _send_ir,
+    get_air_metrics_history,
+    get_phantom_state_history,
+    get_phantom_state_runtime,
+    poll_air_sensor_task,
+    save_air_metrics_snapshot,
+    save_phantom_state_snapshot,
+)
 from tasks import _should_use_direct_flow
 
 
@@ -162,6 +171,93 @@ def test_get_air_metrics_history_returns_oldest_to_newest_limited_rows(tmp_path)
 
 def test_get_air_metrics_history_missing_db_returns_empty_list(tmp_path):
     assert get_air_metrics_history(str(tmp_path / "missing.sqlite3")) == []
+
+
+def test_phantom_state_history_returns_requested_page_newest_first(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    states = [
+        {"mode": "AUTO", "speed": 1},
+        {"mode": "MANUAL", "speed": 2},
+        {"mode": "SLEEP", "speed": 3},
+    ]
+    for index, state in enumerate(states):
+        save_phantom_state_snapshot(state, db_path, datetime(2026, 1, 1, 10, index, 0))
+
+    result = get_phantom_state_history(db_path, page=2, page_size=1)
+
+    assert result["total"] == 3
+    assert result["page"] == 2
+    assert result["page_size"] == 1
+    assert result["history"][0]["changed_at"] == "2026-01-01T10:01:00"
+    assert result["history"][0]["state"] == states[1]
+
+
+def test_sensor_history_schema_is_created_when_state_history_created_db_first(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    save_phantom_state_snapshot({"mode": "AUTO"}, db_path)
+
+    save_air_metrics_snapshot({"co2_ppm": 650, "online": True, "zigbee_online": True}, db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        sensor_rows = conn.execute("SELECT COUNT(*) FROM air_metrics_history").fetchone()[0]
+        state_rows = conn.execute("SELECT COUNT(*) FROM phantom_state_history").fetchone()[0]
+
+    assert sensor_rows == 1
+    assert state_rows == 1
+
+
+def test_get_phantom_state_history_without_table_returns_empty_list(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    save_air_metrics_snapshot({"co2_ppm": 650, "online": True, "zigbee_online": True}, db_path)
+
+    assert get_phantom_state_history(db_path) == {
+        "history": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 25,
+    }
+
+
+def test_phantom_state_history_pagination_reaches_past_500_rows(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    first_state = {"mode": "AUTO", "speed": 1}
+    save_phantom_state_snapshot(first_state, db_path, datetime(2026, 1, 1, 10, 0, 0))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
+            ((f"test-{index}", json.dumps({"mode": "MANUAL", "speed": index})) for index in range(500)),
+        )
+
+    final_page = get_phantom_state_history(db_path, page=21, page_size=25)
+
+    assert final_page["total"] == 501
+    assert len(final_page["history"]) == 1
+    assert final_page["history"][0]["state"] == first_state
+
+
+def test_phantom_state_runtime_splits_night_and_counts_boost_as_speed_three(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    transitions = [
+        (datetime(2026, 1, 1, 10, 0), {"speed": 1}),
+        (datetime(2026, 1, 1, 10, 10), {"speed": 1, "boost": True}),
+        (datetime(2026, 1, 1, 10, 25), {"speed": 2, "night": True}),
+        (datetime(2026, 1, 1, 10, 35), {"speed": 3}),
+        (datetime(2026, 1, 1, 10, 50), {"speed": 2}),
+    ]
+    for changed_at, state in transitions:
+        save_phantom_state_snapshot(state, db_path, changed_at)
+
+    runtime = get_phantom_state_runtime(db_path, datetime(2026, 1, 1, 11, 0))
+
+    assert runtime["durations_seconds"] == {
+        "night": 600,
+        "speed_1": 600,
+        "speed_2": 600,
+        "speed_3": 1800,
+    }
+    assert runtime["total_seconds"] == 3600
+    assert runtime["started_at"] == "2026-01-01T10:00:00+02:00"
 
 
 @pytest.mark.asyncio

@@ -110,7 +110,7 @@ def _apply_last_known_good(target: dict, source: dict):
 def _create_air_history_schema(conn: sqlite3.Connection):
     conn.execute(
         """
-        CREATE TABLE air_metrics_history (
+        CREATE TABLE IF NOT EXISTS air_metrics_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fetched_at TEXT NOT NULL,
             co2_ppm REAL,
@@ -141,12 +141,14 @@ def save_air_metrics_snapshot(metrics: dict, db_path: str, fetched_at: datetime 
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
 
-    should_create_schema = not os.path.exists(db_path)
     timestamp = (fetched_at or _get_now()).isoformat()
     snapshot = {field: metrics.get(field) for field in AIR_HISTORY_FIELDS}
 
     with closing(sqlite3.connect(db_path)) as conn, conn:
-        if should_create_schema:
+        air_history_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'air_metrics_history'"
+        ).fetchone()
+        if air_history_table is None:
             _create_air_history_schema(conn)
 
         conn.execute(
@@ -235,6 +237,151 @@ def get_air_metrics_history(db_path: str, limit: int = 180) -> list[dict]:
         return []
 
     return [dict(row) for row in reversed(rows)]
+
+
+def save_phantom_state_snapshot(
+    state: dict,
+    db_path: str,
+    changed_at: datetime | None = None,
+):
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS phantom_state_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                changed_at TEXT NOT NULL,
+                state_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
+            ((changed_at or _get_now()).isoformat(), json.dumps(state)),
+        )
+
+
+def get_phantom_state_history(db_path: str, page: int = 1, page_size: int = 25) -> dict:
+    safe_page = max(1, page)
+    safe_page_size = max(1, min(page_size, 100))
+    empty_page = {
+        "history": [],
+        "total": 0,
+        "page": safe_page,
+        "page_size": safe_page_size,
+    }
+    if not os.path.exists(db_path):
+        return empty_page
+
+    try:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
+            conn.row_factory = sqlite3.Row
+            table_exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'phantom_state_history'"
+            ).fetchone()
+            if table_exists is None:
+                return empty_page
+
+            total = conn.execute("SELECT COUNT(*) FROM phantom_state_history").fetchone()[0]
+
+            rows = conn.execute(
+                """
+                SELECT id, changed_at, state_json
+                FROM phantom_state_history
+                ORDER BY id DESC
+                LIMIT ?
+                OFFSET ?
+                """,
+                (safe_page_size, (safe_page - 1) * safe_page_size),
+            ).fetchall()
+            return {
+                "history": [
+                    {
+                        "id": row["id"],
+                        "changed_at": row["changed_at"],
+                        "state": json.loads(row["state_json"]),
+                    }
+                    for row in rows
+                ],
+                "total": total,
+                "page": safe_page,
+                "page_size": safe_page_size,
+            }
+    except (sqlite3.Error, json.JSONDecodeError) as e:
+        logging.error(f"PHANTOM STATE HISTORY READ ERROR: {e}")
+        return empty_page
+
+
+def get_phantom_state_runtime(db_path: str, now: datetime | None = None) -> dict:
+    durations = {
+        "night": 0,
+        "speed_1": 0,
+        "speed_2": 0,
+        "speed_3": 0,
+    }
+    result = {
+        "durations_seconds": durations,
+        "total_seconds": 0,
+        "started_at": None,
+        "as_of": (now or _get_now()).isoformat(),
+    }
+    if not os.path.exists(db_path):
+        return result
+
+    try:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
+            table_exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'phantom_state_history'"
+            ).fetchone()
+            if table_exists is None:
+                return result
+            rows = conn.execute(
+                "SELECT changed_at, state_json FROM phantom_state_history ORDER BY id"
+            ).fetchall()
+    except sqlite3.Error as e:
+        logging.error(f"PHANTOM STATE RUNTIME READ ERROR: {e}")
+        return result
+
+    as_of = now or _get_now()
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=ZoneInfo("Europe/Bucharest"))
+    result["as_of"] = as_of.isoformat()
+
+    events = []
+    for changed_at, state_json in rows:
+        try:
+            timestamp = datetime.fromisoformat(changed_at)
+            state = json.loads(state_json)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=ZoneInfo("Europe/Bucharest"))
+            if isinstance(state, dict):
+                events.append((timestamp, state))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logging.warning("Skipping malformed Phantom state history row")
+
+    events = [(timestamp, state) for timestamp, state in events if timestamp < as_of]
+    if not events:
+        return result
+
+    result["started_at"] = events[0][0].isoformat()
+    for index, (started_at, state) in enumerate(events):
+        ended_at = events[index + 1][0] if index + 1 < len(events) else as_of
+        seconds = max(0, int((min(ended_at, as_of) - started_at).total_seconds()))
+        if state.get("night"):
+            category = "night"
+        elif state.get("boost"):
+            category = "speed_3"
+        elif state.get("speed") in (1, 2, 3):
+            category = f"speed_{state['speed']}"
+        else:
+            continue
+        durations[category] += seconds
+        result["total_seconds"] += seconds
+
+    return result
 
 # IR commands must run synchronously but be awaited via executor
 def _send_ir(ir_device, button_codes: dict, button_name: str):

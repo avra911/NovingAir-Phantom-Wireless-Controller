@@ -166,3 +166,51 @@ async def test_toggle_auto_restores_physical_state_after_boost(monkeypatch):
     assert sent_commands == ["MODE_AUTO", "SPEED_1", "HUMIDITY_3"]
     assert state["boost"] is False
     assert state["automation_enabled"] is True
+
+
+def test_save_state_records_only_actual_state_changes(monkeypatch, tmp_path):
+    state_path = tmp_path / "state.json"
+    db_path = tmp_path / "air_history.sqlite3"
+    monkeypatch.setattr(server, "STATE_FILE", str(state_path))
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", str(db_path))
+    first_state = {"mode": "AUTO", "speed": 1}
+    changed_state = {"mode": "MANUAL", "speed": 2}
+
+    server.save_state(first_state)
+    server.save_state(first_state.copy())
+    server.save_state(changed_state)
+
+    history = server.get_phantom_state_history(str(db_path))["history"]
+    assert [entry["state"] for entry in history] == [changed_state, first_state]
+
+
+@pytest.mark.asyncio
+async def test_phantom_history_endpoint_returns_bounded_history(monkeypatch):
+    expected_response = {
+        "history": [{"id": 3, "changed_at": "2026-01-01T10:00:00", "state": {"mode": "AUTO"}}],
+        "total": 41,
+        "page": 2,
+        "page_size": 25,
+    }
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", "history.sqlite3")
+    monkeypatch.setattr(server, "get_phantom_state_history", lambda db_path, page, page_size: expected_response)
+
+    response = await server.get_phantom_history(page=2, page_size=25)
+
+    assert response == expected_response
+
+
+@pytest.mark.asyncio
+async def test_phantom_runtime_endpoint_returns_duration_summary(monkeypatch):
+    expected_summary = {
+        "durations_seconds": {"night": 60, "speed_1": 120, "speed_2": 180, "speed_3": 240},
+        "total_seconds": 600,
+        "started_at": "2026-01-01T10:00:00+02:00",
+        "as_of": "2026-01-01T10:10:00+02:00",
+    }
+    monkeypatch.setattr(server, "AIR_HISTORY_DB", "history.sqlite3")
+    monkeypatch.setattr(server, "get_phantom_state_runtime", lambda db_path: expected_summary)
+
+    response = await server.get_phantom_runtime()
+
+    assert response == expected_summary

@@ -21,7 +21,14 @@ from config import (
 )
 
 from gateway import TuyaGateway
-from tasks import AIR_HISTORY_DB, get_air_metrics_history, poll_air_sensor_task
+from tasks import (
+    AIR_HISTORY_DB,
+    get_air_metrics_history,
+    get_phantom_state_runtime,
+    get_phantom_state_history,
+    poll_air_sensor_task,
+    save_phantom_state_snapshot,
+)
 
 app = FastAPI()
 
@@ -125,8 +132,21 @@ def load_state() -> dict:
     return DEFAULT_STATE.copy()
 
 def save_state(state: dict):
+    previous_state = None
+    try:
+        with open(STATE_FILE, "r") as state_file:
+            previous_state = json.load(state_file)
+    except (OSError, json.JSONDecodeError):
+        pass
+
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
+
+    if previous_state != state:
+        try:
+            save_phantom_state_snapshot(state, AIR_HISTORY_DB)
+        except Exception:
+            logging.exception("Failed to save Phantom state history")
 
 def load_button_codes() -> dict:
     if os.path.exists(BUTTON_CODES_FILE):
@@ -300,6 +320,17 @@ async def get_automation_log(lines: int = Query(default=120, ge=1, le=500)):
         "lines": [line.rstrip("\n") for line in reversed(log_lines[-lines:])],
         "available": True,
     }
+
+@app.get("/phantom-history")
+async def get_phantom_history(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+):
+    return get_phantom_state_history(AIR_HISTORY_DB, page, page_size)
+
+@app.get("/phantom-runtime")
+async def get_phantom_runtime():
+    return get_phantom_state_runtime(AIR_HISTORY_DB)
 
 @app.get("/")
 async def root():

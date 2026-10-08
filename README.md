@@ -56,11 +56,13 @@ The API listens on `http://0.0.0.0:8000`.
 Useful endpoints:
 
 - `GET /state` returns Phantom state and current sensor metrics.
+- `GET /phantom-history?page=1&page_size=25` returns a page of snapshots recorded when `state.json` changes, along with the total count.
+- `GET /phantom-runtime` totals elapsed time by Night and Speed 1–3, using the latest state through the current time.
 - `POST /command/SPEED` cycles the stored speed state and sends the corresponding IR code.
 - `POST /command/MODE` cycles `AUTO -> SLEEP -> MANUAL`.
 - `POST /command/HUMIDITY`, `/FLUX`, `/NIGHT`, `/BOOST`, and `/RESET` control the remaining functions.
 
-The backend also saves one sensor snapshot per polling cycle into SQLite. By default, history is stored in `data/air_history.sqlite3`. Set `AIR_HISTORY_DB=/path/to/file.sqlite3` in `.env` to use a different location.
+The backend saves one sensor snapshot per polling cycle and a Phantom state snapshot whenever the persisted state changes. Both histories are stored in `data/air_history.sqlite3` by default. Set `AIR_HISTORY_DB=/path/to/file.sqlite3` in `.env` to use a different location.
 
 ## Run the mobile app (Development)
 

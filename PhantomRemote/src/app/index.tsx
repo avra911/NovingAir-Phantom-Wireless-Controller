@@ -11,6 +11,7 @@ import {
   Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { OledColors } from '../constants/theme';
@@ -161,6 +162,69 @@ interface AutomationLogResponse {
   available: boolean;
 }
 
+interface PhantomStateHistoryEntry {
+  id: number;
+  changed_at: string;
+  state: {
+    mode?: string;
+    speed?: number;
+    humidity?: number;
+    flux?: string;
+    night?: boolean;
+    boost?: boolean;
+    automation_enabled?: boolean;
+  };
+}
+
+interface PhantomStateHistoryResponse {
+  history: PhantomStateHistoryEntry[];
+  total?: number;
+  page?: number;
+  page_size?: number;
+}
+
+type DiagnosticsTab = 'logs' | 'state_history' | 'state_chart';
+type StateRuntimeCategory = 'night' | 'speed_1' | 'speed_2' | 'speed_3';
+
+interface PhantomStateRuntimeResponse {
+  durations_seconds: Record<StateRuntimeCategory, number>;
+  total_seconds: number;
+  started_at: string | null;
+  as_of: string;
+}
+
+const STATE_RUNTIME_CATEGORIES: Array<{ key: StateRuntimeCategory; label: string; color: string }> = [
+  { key: 'night', label: 'Night', color: '#8e9aaf' },
+  { key: 'speed_1', label: 'Speed 1', color: '#7ef2d0' },
+  { key: 'speed_2', label: 'Speed 2', color: '#3498db' },
+  { key: 'speed_3', label: 'Speed 3 · Boost', color: '#f1c40f' },
+];
+const PHANTOM_UNIT_COUNT = 4;
+const HOURS_PER_AVERAGE_YEAR = 365.25 * 24;
+const STATE_POWER_WATTS: Record<StateRuntimeCategory, number> = {
+  night: 3.9,
+  speed_1: 4.2,
+  speed_2: 5.5,
+  speed_3: 6.7,
+};
+
+const getAverageHourlyConsumption = (runtime: PhantomStateRuntimeResponse) => {
+  const runtimeSeconds = Math.max(0, runtime.total_seconds);
+  if (runtimeSeconds <= 0) return null;
+
+  const wattHours = STATE_RUNTIME_CATEGORIES.reduce((total, { key }) => {
+    const seconds = Math.max(0, runtime.durations_seconds[key] ?? 0);
+    return total + seconds * STATE_POWER_WATTS[key] / 3600;
+  }, 0);
+
+  const kwhPerHour = wattHours * PHANTOM_UNIT_COUNT / (runtimeSeconds / 3600) / 1000;
+  return {
+    kwhPerHour,
+    kwhPerYear: kwhPerHour * HOURS_PER_AVERAGE_YEAR,
+    runtimeSeconds,
+  };
+};
+
 type HistoryMetricKey =
   | 'co2_ppm'
   | 'temperature_c'
@@ -209,6 +273,7 @@ const DEFAULT_SENSOR: SensorMetrics = {
 
 const HISTORY_LIMIT = 24 * 60;
 const VISIBLE_CHART_SAMPLES = 60;
+const PHANTOM_HISTORY_PAGE_SIZE = 10;
 
 const HISTORY_CHARTS: HistoryChartConfig[] = [
   { key: 'co2_ppm', label: 'CO2', unit: 'ppm', color: '#00ffcc' },
@@ -256,6 +321,16 @@ const formatAutomationLogLine = (line: string) => {
   }).format(utcDate);
 
   return `${bucharestTimestamp}${match[2]}`;
+};
+
+const formatRuntimeDuration = (seconds: number) => {
+  const totalMinutes = Math.floor(seconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 };
 
 const getCO2Status = (ppm: number) => {
@@ -468,7 +543,17 @@ export default function Index() {
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [logAvailable, setLogAvailable] = useState(true);
   const [logLoading, setLogLoading] = useState(false);
+  const [diagnosticsTab, setDiagnosticsTab] = useState<DiagnosticsTab>('logs');
+  const [phantomStateHistory, setPhantomStateHistory] = useState<PhantomStateHistoryEntry[]>([]);
+  const [stateHistoryPage, setStateHistoryPage] = useState(1);
+  const [stateHistoryTotal, setStateHistoryTotal] = useState(0);
+  const [stateHistoryAvailable, setStateHistoryAvailable] = useState(true);
+  const [stateHistoryLoading, setStateHistoryLoading] = useState(false);
+  const [stateRuntime, setStateRuntime] = useState<PhantomStateRuntimeResponse | null>(null);
+  const [stateRuntimeAvailable, setStateRuntimeAvailable] = useState(true);
+  const [stateRuntimeLoading, setStateRuntimeLoading] = useState(false);
   const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
+  const hourlyConsumptionEstimate = stateRuntime ? getAverageHourlyConsumption(stateRuntime) : null;
 
   useEffect(() => {
     fetchState();
@@ -531,6 +616,53 @@ export default function Index() {
     } finally {
       setLogLoading(false);
     }
+  };
+
+  const fetchPhantomStateHistory = async (page = stateHistoryPage) => {
+    setStateHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/phantom-history?page=${page}&page_size=${PHANTOM_HISTORY_PAGE_SIZE}`);
+      if (!res.ok) throw new Error(`State history request failed with HTTP status ${res.status}`);
+      const data: PhantomStateHistoryResponse = await res.json();
+      const history = Array.isArray(data.history) ? data.history : [];
+      setPhantomStateHistory(history);
+      setStateHistoryPage(typeof data.page === 'number' && Number.isInteger(data.page) ? data.page : 1);
+      setStateHistoryTotal(typeof data.total === 'number' && Number.isFinite(data.total) ? data.total : history.length);
+      setStateHistoryAvailable(true);
+    } catch (err) {
+      console.error('Failed to fetch Phantom state history:', err);
+      setStateHistoryAvailable(false);
+    } finally {
+      setStateHistoryLoading(false);
+    }
+  };
+
+  const navigateStateHistory = (page: number) => {
+    const totalPages = Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE);
+    if (page < 1 || page > totalPages || page === stateHistoryPage) return;
+    setStateHistoryPage(page);
+    fetchPhantomStateHistory(page);
+  };
+
+  const fetchStateRuntime = async () => {
+    setStateRuntimeLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/phantom-runtime`);
+      if (!res.ok) throw new Error(`State runtime request failed with HTTP status ${res.status}`);
+      setStateRuntime(await res.json());
+      setStateRuntimeAvailable(true);
+    } catch (err) {
+      console.error('Failed to fetch Phantom state runtime:', err);
+      setStateRuntimeAvailable(false);
+    } finally {
+      setStateRuntimeLoading(false);
+    }
+  };
+
+  const refreshDiagnosticsTab = (tab = diagnosticsTab) => {
+    if (tab === 'logs') fetchAutomationLog();
+    else if (tab === 'state_history') fetchPhantomStateHistory();
+    else fetchStateRuntime();
   };
 
   const sendCommand = async (actionKey: string, payload?: object) => {
@@ -707,11 +839,15 @@ export default function Index() {
 
   if (!fontsLoaded || initialFetching) {
     return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color="#00ffcc" />
-        <Text style={[styles.lcdText, { marginTop: 16 }]}>
-          Connecting to backend...
-        </Text>
+      <SafeAreaView style={[styles.container, styles.loadingScreen]}>
+        <Image
+          source={require('../../assets/images/phantom-mark.png')}
+          style={styles.loadingMark}
+          contentFit="contain"
+        />
+        <Text style={styles.loadingBrand}>NOVINGAIR PHANTOM</Text>
+        <ActivityIndicator size="small" color="#7ef2d0" />
+        <Text style={styles.loadingMessage}>Connecting to backend...</Text>
       </SafeAreaView>
     );
   }
@@ -1214,36 +1350,227 @@ export default function Index() {
         <View style={[styles.diagnosticsCard, activeView !== 'diagnostics' && styles.hiddenView]}>
           <View style={styles.diagnosticsHeader}>
             <View>
-              <Text style={styles.sectionEyebrow}>AUTOMATION LOG</Text>
-              <Text style={styles.diagnosticsTitle}>Recent system activity</Text>
+              <Text style={styles.sectionEyebrow}>
+                {diagnosticsTab === 'logs' ? 'AUTOMATION LOG' : diagnosticsTab === 'state_history' ? 'PHANTOM STATE' : 'STATE RUNTIME'}
+              </Text>
+              <Text style={styles.diagnosticsTitle}>
+                {diagnosticsTab === 'logs' ? 'Recent system activity' : diagnosticsTab === 'state_history' ? 'State change history' : 'Time by operating state'}
+              </Text>
             </View>
             <TouchableOpacity
               style={styles.refreshButton}
-              onPress={fetchAutomationLog}
-              disabled={logLoading}
+              onPress={() => refreshDiagnosticsTab()}
+              disabled={diagnosticsTab === 'logs' ? logLoading : diagnosticsTab === 'state_history' ? stateHistoryLoading : stateRuntimeLoading}
               accessibilityRole="button"
-              accessibilityLabel="Refresh automation log"
+              accessibilityLabel={diagnosticsTab === 'logs' ? 'Refresh automation log' : diagnosticsTab === 'state_history' ? 'Refresh Phantom state history' : 'Refresh state runtime chart'}
             >
-              {logLoading ? <ActivityIndicator size="small" color="#7ef2d0" /> : <Ionicons name="refresh" size={18} color="#7ef2d0" />}
+              {(diagnosticsTab === 'logs' ? logLoading : diagnosticsTab === 'state_history' ? stateHistoryLoading : stateRuntimeLoading)
+                ? <ActivityIndicator size="small" color="#7ef2d0" />
+                : <Ionicons name="refresh" size={18} color="#7ef2d0" />}
             </TouchableOpacity>
           </View>
-          {!logAvailable ? (
-            <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
-          ) : automationLog.length === 0 ? (
-            <Text style={styles.diagnosticsEmpty}>No automation entries yet.</Text>
-          ) : (
-            <ScrollView
-              style={styles.logScroll}
-              contentContainerStyle={styles.logScrollContent}
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
+          <View style={styles.diagnosticsTabs} accessibilityRole="tablist">
+            <TouchableOpacity
+              style={[styles.diagnosticsTab, diagnosticsTab === 'logs' && styles.diagnosticsTabActive]}
+              onPress={() => setDiagnosticsTab('logs')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: diagnosticsTab === 'logs' }}
             >
-              {automationLog.map((line, index) => (
-                <Text key={`${index}-${line}`} style={styles.logLine}>{formatAutomationLogLine(line)}</Text>
-              ))}
-            </ScrollView>
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'logs' && styles.diagnosticsTabTextActive]}>Logs</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.diagnosticsTab, diagnosticsTab === 'state_history' && styles.diagnosticsTabActive]}
+              onPress={() => {
+                setDiagnosticsTab('state_history');
+                fetchPhantomStateHistory();
+              }}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: diagnosticsTab === 'state_history' }}
+            >
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_history' && styles.diagnosticsTabTextActive]}>State history</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.diagnosticsTab, diagnosticsTab === 'state_chart' && styles.diagnosticsTabActive]}
+              onPress={() => {
+                setDiagnosticsTab('state_chart');
+                fetchStateRuntime();
+              }}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: diagnosticsTab === 'state_chart' }}
+            >
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_chart' && styles.diagnosticsTabTextActive]}>State chart</Text>
+            </TouchableOpacity>
+          </View>
+          {diagnosticsTab === 'logs' ? (
+            <>
+              {!logAvailable ? (
+                <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
+              ) : automationLog.length === 0 ? (
+                <Text style={styles.diagnosticsEmpty}>No automation entries yet.</Text>
+              ) : (
+                <ScrollView
+                  style={styles.logScroll}
+                  contentContainerStyle={styles.logScrollContent}
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                >
+                  {automationLog.map((line, index) => (
+                    <Text key={`${index}-${line}`} style={styles.logLine}>{formatAutomationLogLine(line)}</Text>
+                  ))}
+                </ScrollView>
+              )}
+              <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
+            </>
+          ) : diagnosticsTab === 'state_history' ? (
+            stateHistoryLoading ? (
+              <View style={styles.stateHistoryLoading}>
+                <ActivityIndicator size="small" color="#7ef2d0" />
+              </View>
+            ) : !stateHistoryAvailable ? (
+              <Text style={styles.diagnosticsEmpty}>Phantom state history is unavailable.</Text>
+            ) : phantomStateHistory.length === 0 ? (
+              <Text style={styles.diagnosticsEmpty}>No Phantom state changes recorded yet.</Text>
+            ) : (
+            <>
+              <ScrollView style={styles.stateHistoryScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+                <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator contentContainerStyle={styles.stateHistoryTableContent}>
+                  <View style={styles.stateHistoryTable}>
+                    <View style={[styles.stateHistoryRow, styles.stateHistoryHeaderRow]}>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryTimeCell]}>TIME</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryModeCell]}>MODE</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryNumberCell]}>SPEED</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryNumberCell]}>HUM</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryFluxCell]}>FLUX</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryFlagCell]}>NIGHT</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryFlagCell]}>BOOST</Text>
+                      <Text style={[styles.stateHistoryHeaderCell, styles.stateHistoryFlagCell]}>AUTO</Text>
+                    </View>
+                    {phantomStateHistory.map((entry) => (
+                      <View key={entry.id} style={styles.stateHistoryRow}>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryTimeCell]} numberOfLines={1}>
+                          {new Date(entry.changed_at).toLocaleString()}
+                        </Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryModeCell]}>{entry.state.mode ?? '--'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryNumberCell]}>{entry.state.speed ?? '--'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryNumberCell]}>{entry.state.humidity ?? '--'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryFluxCell]} numberOfLines={1}>{entry.state.flux ?? '--'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryFlagCell]}>{entry.state.night ? 'ON' : 'OFF'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryFlagCell]}>{entry.state.boost ? 'ON' : 'OFF'}</Text>
+                        <Text style={[styles.stateHistoryCell, styles.stateHistoryFlagCell]}>{entry.state.automation_enabled ? 'ON' : 'OFF'}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </ScrollView>
+              <View style={styles.stateHistoryPagination}>
+                <View style={styles.stateHistoryPaginationGroup}>
+                  <TouchableOpacity
+                    style={[styles.stateHistoryPageButton, stateHistoryPage <= 1 && styles.stateHistoryPageButtonDisabled]}
+                    onPress={() => navigateStateHistory(1)}
+                    disabled={stateHistoryPage <= 1 || stateHistoryLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="First history page"
+                  >
+                    <Text style={styles.stateHistoryPageText}>{'<<'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.stateHistoryPageButton, stateHistoryPage <= 1 && styles.stateHistoryPageButtonDisabled]}
+                    onPress={() => navigateStateHistory(stateHistoryPage - 1)}
+                    disabled={stateHistoryPage <= 1 || stateHistoryLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous history page"
+                  >
+                    <Ionicons name="chevron-back" size={16} color={stateHistoryPage <= 1 ? '#444' : '#7ef2d0'} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.stateHistoryPageIndicator}>
+                  {stateHistoryPage} / {Math.max(1, Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE))}
+                </Text>
+                <View style={styles.stateHistoryPaginationGroup}>
+                  <TouchableOpacity
+                    style={[styles.stateHistoryPageButton, stateHistoryPage >= Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE) && styles.stateHistoryPageButtonDisabled]}
+                    onPress={() => navigateStateHistory(stateHistoryPage + 1)}
+                    disabled={stateHistoryPage >= Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE) || stateHistoryLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next history page"
+                  >
+                    <Ionicons name="chevron-forward" size={16} color={stateHistoryPage >= Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE) ? '#444' : '#7ef2d0'} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.stateHistoryPageButton, stateHistoryPage >= Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE) && styles.stateHistoryPageButtonDisabled]}
+                    onPress={() => navigateStateHistory(Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE))}
+                    disabled={stateHistoryPage >= Math.ceil(stateHistoryTotal / PHANTOM_HISTORY_PAGE_SIZE) || stateHistoryLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Last history page"
+                  >
+                    <Text style={styles.stateHistoryPageText}>{'>>'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.diagnosticsFootnote} numberOfLines={1}>
+                {stateHistoryTotal} state changes · newest first
+              </Text>
+            </>
+            )
+          ) : stateRuntimeLoading ? (
+            <View style={styles.stateHistoryLoading}>
+              <ActivityIndicator size="small" color="#7ef2d0" />
+            </View>
+          ) : !stateRuntimeAvailable || !stateRuntime ? (
+            <Text style={styles.diagnosticsEmpty}>State runtime data is unavailable.</Text>
+          ) : stateRuntime.total_seconds === 0 ? (
+            <Text style={styles.diagnosticsEmpty}>No state history available to summarize yet.</Text>
+          ) : (
+            <View style={styles.stateRuntimeChart}>
+              <View style={styles.stateRuntimeSummary}>
+                <Text style={styles.stateRuntimeTotal}>{formatRuntimeDuration(stateRuntime.total_seconds)}</Text>
+                <Text style={styles.stateRuntimeCaption}>recorded runtime</Text>
+              </View>
+              <Text style={styles.stateRuntimePeriod} numberOfLines={2}>
+                Since {stateRuntime.started_at ? new Date(stateRuntime.started_at).toLocaleString() : 'unknown'}
+              </Text>
+              {STATE_RUNTIME_CATEGORIES.map((category) => {
+                const seconds = Math.max(0, stateRuntime.durations_seconds[category.key] ?? 0);
+                const percentage = stateRuntime.total_seconds > 0 ? Math.min(100, seconds / stateRuntime.total_seconds * 100) : 0;
+                return (
+                  <View key={category.key} style={styles.stateRuntimeRow}>
+                    <View style={styles.stateRuntimeLabelRow}>
+                      <View style={[styles.stateRuntimeSwatch, { backgroundColor: category.color }]} />
+                      <Text style={styles.stateRuntimeLabel}>{category.label}</Text>
+                      <Text style={styles.stateRuntimeValue}>{formatRuntimeDuration(seconds)} · {percentage.toFixed(1)}%</Text>
+                    </View>
+                    <View style={styles.stateRuntimeTrack}>
+                      <View style={[styles.stateRuntimeBar, { width: `${percentage}%`, backgroundColor: category.color }]} />
+                    </View>
+                  </View>
+                );
+              })}
+              <Text style={styles.diagnosticsFootnote}>Boost is included in Speed 3 · Night is counted separately</Text>
+              <View style={styles.stateEnergySummary}>
+                <View style={styles.stateEnergyRow}>
+                  <View style={styles.stateEnergyDetails}>
+                    <Text style={styles.stateEnergyLabel}>Average hourly consumption</Text>
+                    <Text style={styles.stateEnergyCaption}>
+                      4 units · {hourlyConsumptionEstimate ? `based on ${formatRuntimeDuration(hourlyConsumptionEstimate.runtimeSeconds)} runtime` : 'period unavailable'}
+                    </Text>
+                  </View>
+                  <Text style={styles.stateEnergyValue}>
+                    {hourlyConsumptionEstimate ? `${(hourlyConsumptionEstimate.kwhPerHour * 1000).toFixed(1)} W` : 'Unavailable'}
+                  </Text>
+                </View>
+                <View style={[styles.stateEnergyRow, styles.stateEnergyYearlyRow]}>
+                  <View style={styles.stateEnergyDetails}>
+                    <Text style={styles.stateEnergyLabel}>Estimated yearly consumption</Text>
+                    <Text style={styles.stateEnergyCaption}>If this operating mix continues</Text>
+                  </View>
+                  <Text style={styles.stateEnergyValue}>
+                    {hourlyConsumptionEstimate ? `${hourlyConsumptionEstimate.kwhPerYear.toFixed(1)} kWh/yr` : 'Unavailable'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.diagnosticsFootnote}>Per unit: Night 3.9 W · Speeds 1–3: 4.2 / 5.5 / 6.7 W</Text>
+            </View>
           )}
-          <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
         </View>
         <View style={styles.appFooter}>
           <Text style={styles.appFooterLabel}>NOVINGAIR PHANTOM WIRELESS CONTROLLER</Text>
@@ -1326,7 +1653,9 @@ export default function Index() {
                 onPress={() => {
                   setActiveView(view);
                   setMenuOpen(false);
-                  if (view === 'diagnostics') fetchAutomationLog();
+                  if (view === 'diagnostics') {
+                    refreshDiagnosticsTab();
+                  }
                 }}
                 accessibilityRole="button"
                 accessibilityState={{ selected: activeView === view }}
@@ -1349,6 +1678,10 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
+  loadingScreen: { alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 },
+  loadingMark: { width: 112, height: 112 },
+  loadingBrand: { color: '#7ef2d0', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  loadingMessage: { color: '#c4d2ce', fontSize: 13, fontWeight: '600' },
   scrollContent: { alignItems: 'center', paddingVertical: 24, paddingHorizontal: 16 },
   appHeader: {
     width: '100%',
@@ -1505,9 +1838,53 @@ const styles = StyleSheet.create({
   diagnosticsTitle: { color: '#f4faf8', fontSize: 18, fontWeight: '700', marginTop: 3 },
   refreshButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: '#1b2926', alignItems: 'center', justifyContent: 'center' },
   diagnosticsEmpty: { color: '#9aa9a7', fontSize: 13, paddingVertical: 24 },
+  diagnosticsTabs: { flexDirection: 'row', gap: 4, padding: 3, marginBottom: 12, borderWidth: 1, borderColor: '#1b2926', borderRadius: 8, backgroundColor: '#050707' },
+  diagnosticsTab: { flex: 1, minHeight: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 5 },
+  diagnosticsTabActive: { backgroundColor: '#06241d' },
+  diagnosticsTabText: { color: '#657673', fontSize: 11, fontWeight: '700' },
+  diagnosticsTabTextActive: { color: '#7ef2d0' },
   logScroll: { maxHeight: 420, backgroundColor: '#050707', borderRadius: 10, paddingHorizontal: 12 },
   logScrollContent: { paddingTop: 12, paddingBottom: 18 },
   logLine: { color: '#9aa9a7', fontSize: 11, lineHeight: 18, fontFamily: 'monospace', flexShrink: 1, paddingBottom: 2 },
+  stateHistoryLoading: { height: 160, alignItems: 'center', justifyContent: 'center' },
+  stateHistoryScroll: { maxHeight: 420, borderRadius: 8, backgroundColor: '#050707' },
+  stateHistoryTableContent: { minWidth: '100%' },
+  stateHistoryTable: { width: '100%', minWidth: 658 },
+  stateHistoryRow: { width: '100%', minWidth: 658, flexDirection: 'row', alignItems: 'center', minHeight: 38, borderBottomWidth: 1, borderBottomColor: '#14201d' },
+  stateHistoryHeaderRow: { backgroundColor: '#0d1412' },
+  stateHistoryHeaderCell: { color: '#657673', fontSize: 9, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 10 },
+  stateHistoryCell: { color: '#c4d2ce', fontSize: 10, fontFamily: 'monospace', paddingHorizontal: 8, paddingVertical: 9 },
+  stateHistoryTimeCell: { width: 148, flexGrow: 1 },
+  stateHistoryModeCell: { width: 76, flexGrow: 1 },
+  stateHistoryNumberCell: { width: 62, flexGrow: 1, textAlign: 'center' },
+  stateHistoryFluxCell: { width: 112, flexGrow: 1 },
+  stateHistoryFlagCell: { width: 66, flexGrow: 1, textAlign: 'center' },
+  stateHistoryPagination: { width: '100%', flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'flex-start', gap: 4, marginTop: 12 },
+  stateHistoryPaginationGroup: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  stateHistoryPageButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#1b2926', borderRadius: 4 },
+  stateHistoryPageButtonActive: { backgroundColor: '#06241d', borderColor: '#245e50' },
+  stateHistoryPageButtonDisabled: { opacity: 0.5 },
+  stateHistoryPageText: { color: '#9aa9a7', fontSize: 10, fontWeight: '700' },
+  stateHistoryPageIndicator: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace', minWidth: 54, textAlign: 'center' },
+  stateRuntimeChart: { paddingVertical: 8 },
+  stateRuntimeSummary: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  stateRuntimeTotal: { color: '#f4faf8', fontSize: 22, fontWeight: '700', fontFamily: 'monospace' },
+  stateRuntimeCaption: { color: '#657673', fontSize: 10, fontWeight: '700' },
+  stateRuntimePeriod: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 4, marginBottom: 20 },
+  stateRuntimeRow: { marginBottom: 16 },
+  stateRuntimeLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
+  stateRuntimeSwatch: { width: 8, height: 8, borderRadius: 4 },
+  stateRuntimeLabel: { color: '#c4d2ce', fontSize: 11, fontWeight: '700', flex: 1 },
+  stateRuntimeValue: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace' },
+  stateRuntimeTrack: { height: 8, backgroundColor: '#151d1b', borderRadius: 4, overflow: 'hidden' },
+  stateRuntimeBar: { height: '100%', borderRadius: 4 },
+  stateEnergySummary: { borderTopWidth: 1, borderTopColor: '#1b2926', marginTop: 16, paddingTop: 4 },
+  stateEnergyRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
+  stateEnergyYearlyRow: { borderTopWidth: 1, borderTopColor: '#14201d' },
+  stateEnergyDetails: { flex: 1, minWidth: 0 },
+  stateEnergyLabel: { color: '#c4d2ce', fontSize: 12, fontWeight: '700' },
+  stateEnergyCaption: { color: '#657673', fontSize: 10, lineHeight: 14, marginTop: 4 },
+  stateEnergyValue: { color: '#7ef2d0', fontSize: 17, fontWeight: '700', fontFamily: 'monospace' },
   diagnosticsFootnote: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 10 },
 
   // --- HISTORY CHARTS ---

@@ -6,9 +6,16 @@
     "orientation": "portrait",
     "scheme": "phantomremote",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/phantom-icon.png",
+    "backgroundColor": "#050908",
     "android": {
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/phantom-mark.png",
+        "monochromeImage": "./assets/images/phantom-mark-mono.png",
+        "backgroundColor": "#050908"
+      },
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"
@@ -22,6 +29,15 @@
     "plugins": [
       "expo-router",
       "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/phantom-mark.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#050908"
+        }
+      ],
       [
         "expo-build-properties",
         {
