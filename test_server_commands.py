@@ -187,7 +187,7 @@ def test_save_state_records_only_actual_state_changes(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_phantom_history_endpoint_returns_bounded_history(monkeypatch):
     expected_response = {
-        "history": [{"id": 3, "changed_at": "2026-01-01T10:00:00", "state": {"mode": "AUTO"}}],
+        "history": [{"id": 3, "created_at": "2026-01-01T10:00:00", "state": {"mode": "AUTO"}}],
         "total": 41,
         "page": 2,
         "page_size": 25,

@@ -15,6 +15,7 @@ from tasks import (
     save_phantom_state_snapshot,
 )
 from tasks import _should_use_direct_flow
+from migrate_phantom_state_history import migrate_phantom_state_history
 
 
 def test_automation_ir_log_omits_none_response(caplog):
@@ -188,8 +189,72 @@ def test_phantom_state_history_returns_requested_page_newest_first(tmp_path):
     assert result["total"] == 3
     assert result["page"] == 2
     assert result["page_size"] == 1
-    assert result["history"][0]["changed_at"] == "2026-01-01T10:01:00"
+    assert result["history"][0]["created_at"] == "2026-01-01T10:01:00+02:00"
     assert result["history"][0]["state"] == states[1]
+
+
+def test_phantom_state_history_migrates_changed_at_column(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE phantom_state_history (id INTEGER PRIMARY KEY, changed_at TEXT NOT NULL, state_json TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
+            ("2026-01-01T10:00:00", json.dumps({"mode": "AUTO"})),
+        )
+
+    history = get_phantom_state_history(db_path)
+    save_phantom_state_snapshot({"mode": "MANUAL"}, db_path, datetime(2026, 1, 1, 10, 1))
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(phantom_state_history)")}
+
+    assert history["history"][0]["created_at"] == "2026-01-01T10:00:00+02:00"
+    assert "created_at" in columns
+    assert "changed_at" not in columns
+
+
+def test_phantom_state_history_migration_backfills_category_and_duration(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE phantom_state_history (id INTEGER PRIMARY KEY, changed_at TEXT NOT NULL, state_json TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
+            [
+                ("2026-01-01T10:00:00", json.dumps({"speed": 1})),
+                ("2026-01-01T10:10:00", json.dumps({"speed": 1, "boost": True})),
+                ("2026-01-01T10:25:00", json.dumps({"speed": 2, "night": True})),
+            ],
+        )
+
+    result = migrate_phantom_state_history(db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT category, duration_seconds FROM phantom_state_history ORDER BY id"
+        ).fetchall()
+
+    assert result["rows"] == 3
+    assert result["backfilled_rows"] == 3
+    assert rows == [("speed_1", 600), ("speed_3", 900), ("night", None)]
+
+
+def test_new_state_snapshot_closes_previous_interval_and_leaves_current_open(tmp_path):
+    db_path = str(tmp_path / "air_history.sqlite3")
+    save_phantom_state_snapshot({"speed": 1}, db_path, datetime(2026, 1, 1, 10, 0))
+    save_phantom_state_snapshot(
+        {"speed": 1, "boost": True}, db_path, datetime(2026, 1, 1, 10, 10)
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT category, duration_seconds FROM phantom_state_history ORDER BY id"
+        ).fetchall()
+
+    assert rows == [("speed_1", 600), ("speed_3", None)]
 
 
 def test_sensor_history_schema_is_created_when_state_history_created_db_first(tmp_path):
@@ -225,7 +290,7 @@ def test_phantom_state_history_pagination_reaches_past_500_rows(tmp_path):
 
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
-            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
+            "INSERT INTO phantom_state_history (created_at, state_json) VALUES (?, ?)",
             ((f"test-{index}", json.dumps({"mode": "MANUAL", "speed": index})) for index in range(500)),
         )
 
@@ -245,8 +310,8 @@ def test_phantom_state_runtime_splits_night_and_counts_boost_as_speed_three(tmp_
         (datetime(2026, 1, 1, 10, 35), {"speed": 3}),
         (datetime(2026, 1, 1, 10, 50), {"speed": 2}),
     ]
-    for changed_at, state in transitions:
-        save_phantom_state_snapshot(state, db_path, changed_at)
+    for created_at, state in transitions:
+        save_phantom_state_snapshot(state, db_path, created_at)
 
     runtime = get_phantom_state_runtime(db_path, datetime(2026, 1, 1, 11, 0))
 

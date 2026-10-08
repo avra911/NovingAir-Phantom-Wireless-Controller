@@ -56,13 +56,24 @@ The API listens on `http://0.0.0.0:8000`.
 Useful endpoints:
 
 - `GET /state` returns Phantom state and current sensor metrics.
-- `GET /phantom-history?page=1&page_size=25` returns a page of snapshots recorded when `state.json` changes, along with the total count.
-- `GET /phantom-runtime` totals elapsed time by Night and Speed 1–3, using the latest state through the current time.
+- `GET /phantom-history?page=1&page_size=25` returns a page of snapshots with their `created_at` timestamps, recorded when `state.json` changes, along with the total count.
+- `GET /phantom-runtime` aggregates stored state categories and durations by Night and Speed 1–3, including the open interval through the current time.
 - `POST /command/SPEED` cycles the stored speed state and sends the corresponding IR code.
 - `POST /command/MODE` cycles `AUTO -> SLEEP -> MANUAL`.
 - `POST /command/HUMIDITY`, `/FLUX`, `/NIGHT`, `/BOOST`, and `/RESET` control the remaining functions.
 
 The backend saves one sensor snapshot per polling cycle and a Phantom state snapshot whenever the persisted state changes. Both histories are stored in `data/air_history.sqlite3` by default. Set `AIR_HISTORY_DB=/path/to/file.sqlite3` in `.env` to use a different location.
+
+### Migrate Phantom state history
+
+Back up the SQLite file and stop the backend before migrating the live database. Then run the standalone migration script from the repository root:
+
+```bash
+source .venv/bin/activate
+python migrate_phantom_state_history.py /path/to/air_history.sqlite3
+```
+
+Omit the path to use `AIR_HISTORY_DB` or the default `data/air_history.sqlite3`. The script renames `changed_at` to `created_at` when needed, adds `category` and `duration_seconds`, backfills completed intervals, and leaves the newest interval open. The application also applies the same migration automatically on its next state-history operation.
 
 ## Run the mobile app (Development)
 

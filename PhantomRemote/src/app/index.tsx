@@ -164,7 +164,7 @@ interface AutomationLogResponse {
 
 interface PhantomStateHistoryEntry {
   id: number;
-  changed_at: string;
+  created_at: string;
   state: {
     mode?: string;
     speed?: number;
@@ -1448,7 +1448,7 @@ export default function Index() {
                     {phantomStateHistory.map((entry) => (
                       <View key={entry.id} style={styles.stateHistoryRow}>
                         <Text style={[styles.stateHistoryCell, styles.stateHistoryTimeCell]} numberOfLines={1}>
-                          {new Date(entry.changed_at).toLocaleString()}
+                          {new Date(entry.created_at).toLocaleString()}
                         </Text>
                         <Text style={[styles.stateHistoryCell, styles.stateHistoryModeCell]}>{entry.state.mode ?? '--'}</Text>
                         <Text style={[styles.stateHistoryCell, styles.stateHistoryNumberCell]}>{entry.state.speed ?? '--'}</Text>

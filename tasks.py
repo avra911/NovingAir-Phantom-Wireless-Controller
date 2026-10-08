@@ -10,6 +10,12 @@ from zoneinfo import ZoneInfo
 import tinytuya
 from tinytuya.Contrib.IRRemoteControlDevice import IRRemoteControlDevice
 from gateway import TuyaGateway
+from migrate_phantom_state_history import (
+    ensure_phantom_state_history_schema,
+    normalize_phantom_timestamp,
+    parse_phantom_timestamp,
+    phantom_state_category,
+)
 
 CO2_HIGH_THRESHOLD = 1200
 CO2_LOW_THRESHOLD = 800
@@ -242,25 +248,44 @@ def get_air_metrics_history(db_path: str, limit: int = 180) -> list[dict]:
 def save_phantom_state_snapshot(
     state: dict,
     db_path: str,
-    changed_at: datetime | None = None,
+    created_at: datetime | None = None,
 ):
     db_dir = os.path.dirname(db_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
+
+    timestamp = normalize_phantom_timestamp(created_at or _get_now())
+    category = phantom_state_category(state)
 
     with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS phantom_state_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                changed_at TEXT NOT NULL,
-                state_json TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                category TEXT,
+                duration_seconds INTEGER
             )
             """
         )
+        ensure_phantom_state_history_schema(conn)
+        previous = conn.execute(
+            "SELECT id, created_at, duration_seconds FROM phantom_state_history ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if previous is not None and previous[2] is None:
+            previous_created_at = parse_phantom_timestamp(previous[1])
+            duration = max(0, int((timestamp - previous_created_at).total_seconds()))
+            conn.execute(
+                "UPDATE phantom_state_history SET duration_seconds = ? WHERE id = ? AND duration_seconds IS NULL",
+                (duration, previous[0]),
+            )
         conn.execute(
-            "INSERT INTO phantom_state_history (changed_at, state_json) VALUES (?, ?)",
-            ((changed_at or _get_now()).isoformat(), json.dumps(state)),
+            """
+            INSERT INTO phantom_state_history (created_at, state_json, category, duration_seconds)
+            VALUES (?, ?, ?, NULL)
+            """,
+            (timestamp.isoformat(), json.dumps(state), category),
         )
 
 
@@ -284,12 +309,13 @@ def get_phantom_state_history(db_path: str, page: int = 1, page_size: int = 25) 
             ).fetchone()
             if table_exists is None:
                 return empty_page
+            ensure_phantom_state_history_schema(conn)
 
             total = conn.execute("SELECT COUNT(*) FROM phantom_state_history").fetchone()[0]
 
             rows = conn.execute(
                 """
-                SELECT id, changed_at, state_json
+                SELECT id, created_at, state_json
                 FROM phantom_state_history
                 ORDER BY id DESC
                 LIMIT ?
@@ -301,7 +327,7 @@ def get_phantom_state_history(db_path: str, page: int = 1, page_size: int = 25) 
                 "history": [
                     {
                         "id": row["id"],
-                        "changed_at": row["changed_at"],
+                        "created_at": row["created_at"],
                         "state": json.loads(row["state_json"]),
                     }
                     for row in rows
@@ -326,10 +352,13 @@ def get_phantom_state_runtime(db_path: str, now: datetime | None = None) -> dict
         "durations_seconds": durations,
         "total_seconds": 0,
         "started_at": None,
-        "as_of": (now or _get_now()).isoformat(),
+        "as_of": normalize_phantom_timestamp(now or _get_now()).isoformat(),
     }
     if not os.path.exists(db_path):
         return result
+
+    as_of = normalize_phantom_timestamp(now or _get_now())
+    result["as_of"] = as_of.isoformat()
 
     try:
         with closing(sqlite3.connect(db_path)) as conn, conn:
@@ -338,48 +367,49 @@ def get_phantom_state_runtime(db_path: str, now: datetime | None = None) -> dict
             ).fetchone()
             if table_exists is None:
                 return result
+            ensure_phantom_state_history_schema(conn)
             rows = conn.execute(
-                "SELECT changed_at, state_json FROM phantom_state_history ORDER BY id"
+                """
+                SELECT
+                    category,
+                    SUM(
+                        COALESCE(
+                            duration_seconds,
+                            MAX(
+                                0,
+                                CAST(strftime('%s', ?) AS INTEGER)
+                                - CAST(strftime('%s', created_at) AS INTEGER)
+                            )
+                        )
+                    ) AS total_seconds,
+                    MIN(CAST(strftime('%s', created_at) AS INTEGER)) AS started_at_epoch
+                FROM phantom_state_history
+                WHERE category IS NOT NULL
+                GROUP BY category
+                """,
+                (as_of.isoformat(),),
             ).fetchall()
     except sqlite3.Error as e:
         logging.error(f"PHANTOM STATE RUNTIME READ ERROR: {e}")
         return result
 
-    as_of = now or _get_now()
-    if as_of.tzinfo is None:
-        as_of = as_of.replace(tzinfo=ZoneInfo("Europe/Bucharest"))
-    result["as_of"] = as_of.isoformat()
-
-    events = []
-    for changed_at, state_json in rows:
-        try:
-            timestamp = datetime.fromisoformat(changed_at)
-            state = json.loads(state_json)
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=ZoneInfo("Europe/Bucharest"))
-            if isinstance(state, dict):
-                events.append((timestamp, state))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            logging.warning("Skipping malformed Phantom state history row")
-
-    events = [(timestamp, state) for timestamp, state in events if timestamp < as_of]
-    if not events:
-        return result
-
-    result["started_at"] = events[0][0].isoformat()
-    for index, (started_at, state) in enumerate(events):
-        ended_at = events[index + 1][0] if index + 1 < len(events) else as_of
-        seconds = max(0, int((min(ended_at, as_of) - started_at).total_seconds()))
-        if state.get("night"):
-            category = "night"
-        elif state.get("boost"):
-            category = "speed_3"
-        elif state.get("speed") in (1, 2, 3):
-            category = f"speed_{state['speed']}"
-        else:
+    earliest_started_at_epoch = None
+    for category, seconds, started_at_epoch in rows:
+        if category not in durations:
             continue
-        durations[category] += seconds
-        result["total_seconds"] += seconds
+        durations[category] = int(seconds or 0)
+        result["total_seconds"] += durations[category]
+        if started_at_epoch is not None and (
+            earliest_started_at_epoch is None
+            or started_at_epoch < earliest_started_at_epoch
+        ):
+            earliest_started_at_epoch = started_at_epoch
+
+    if earliest_started_at_epoch is not None:
+        result["started_at"] = datetime.fromtimestamp(
+            earliest_started_at_epoch,
+            tz=ZoneInfo("Europe/Bucharest"),
+        ).isoformat()
 
     return result
 
