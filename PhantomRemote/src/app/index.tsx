@@ -1545,7 +1545,9 @@ export default function Index() {
                   </View>
                 );
               })}
-              <Text style={styles.diagnosticsFootnote}>Boost is included in Speed 3 · Night is counted separately</Text>
+              <Text style={styles.diagnosticsFootnote}>
+                Boost is included in Speed 3.{"\n"}Night runtime is counted separately.
+              </Text>
               <View style={styles.stateEnergySummary}>
                 <View style={styles.stateEnergyRow}>
                   <View style={styles.stateEnergyDetails}>
@@ -1568,7 +1570,25 @@ export default function Index() {
                   </Text>
                 </View>
               </View>
-              <Text style={styles.diagnosticsFootnote}>Per unit: Night 3.9 W · Speeds 1–3: 4.2 / 5.5 / 6.7 W</Text>
+              <View style={styles.statePowerBreakdown}>
+                <Text style={styles.stateEnergyLabel}>Power per unit</Text>
+                <View style={styles.statePowerRow}>
+                  <Text style={styles.statePowerLabel}>Night</Text>
+                  <Text style={styles.statePowerValue}>3.9 W</Text>
+                </View>
+                <View style={styles.statePowerRow}>
+                  <Text style={styles.statePowerLabel}>Speed 1</Text>
+                  <Text style={styles.statePowerValue}>4.2 W</Text>
+                </View>
+                <View style={styles.statePowerRow}>
+                  <Text style={styles.statePowerLabel}>Speed 2</Text>
+                  <Text style={styles.statePowerValue}>5.5 W</Text>
+                </View>
+                <View style={styles.statePowerRow}>
+                  <Text style={styles.statePowerLabel}>Speed 3</Text>
+                  <Text style={styles.statePowerValue}>6.7 W</Text>
+                </View>
+              </View>
             </View>
           )}
         </View>
@@ -1880,11 +1900,15 @@ const styles = StyleSheet.create({
   stateRuntimeBar: { height: '100%', borderRadius: 4 },
   stateEnergySummary: { borderTopWidth: 1, borderTopColor: '#1b2926', marginTop: 16, paddingTop: 4 },
   stateEnergyRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
-  stateEnergyYearlyRow: { borderTopWidth: 1, borderTopColor: '#14201d' },
+  stateEnergyYearlyRow: { borderTopWidth: 1, borderTopColor: '#14201d', borderBottomWidth: 1, borderBottomColor: '#14201d' },
   stateEnergyDetails: { flex: 1, minWidth: 0 },
   stateEnergyLabel: { color: '#c4d2ce', fontSize: 12, fontWeight: '700' },
   stateEnergyCaption: { color: '#657673', fontSize: 10, lineHeight: 14, marginTop: 4 },
   stateEnergyValue: { color: '#7ef2d0', fontSize: 17, fontWeight: '700', fontFamily: 'monospace' },
+  statePowerBreakdown: { marginTop: 16 },
+  statePowerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#14201d' },
+  statePowerLabel: { color: '#9aa9a7', fontSize: 11 },
+  statePowerValue: { color: '#c4d2ce', fontSize: 11, fontFamily: 'monospace' },
   diagnosticsFootnote: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 10 },
 
   // --- HISTORY CHARTS ---
