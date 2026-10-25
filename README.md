@@ -42,6 +42,18 @@ EXPO_PUBLIC_API_URL=http://YOUR_BACKEND_IP:8000
 
 Never commit either `.env` file. They are ignored by Git.
 
+### Login
+
+The backend can require a login. Generate the credentials and paste the output into the backend `.env`:
+
+```bash
+python auth.py
+```
+
+This sets `AUTH_USERNAME` and `AUTH_PASSWORD_HASH` (salted scrypt, no plaintext password is stored). If they are unset, the API stays open and the server logs a warning. The app signs in once, keeps a 30-day token in the device secure store, and asks for fingerprint/face (or the device PIN) on each launch. Changing the password or `AUTH_SECRET` signs out all devices. The web build asks for the password again after every reload.
+
+Do not put the password in `PhantomRemote/.env`: `EXPO_PUBLIC_*` values are bundled into the app. When exposing the backend outside your LAN, use HTTPS (reverse proxy or tunnel) or a VPN such as Tailscale, since plain HTTP exposes the password and token.
+
 ## Run the backend (Development)
 
 From the repository root:

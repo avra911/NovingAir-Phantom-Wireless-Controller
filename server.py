@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ from config import (
     SENSOR_LOCAL_KEY,
 )
 
+import auth
 from gateway import TuyaGateway
 from tasks import (
     AIR_HISTORY_DB,
@@ -30,7 +31,7 @@ from tasks import (
     save_phantom_state_snapshot,
 )
 
-app = FastAPI()
+app = FastAPI(dependencies=[Depends(auth.require_auth)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -257,6 +258,8 @@ async def _stop_boost() -> None:
 # ---------------------------------------------------------------------
 @app.on_event("startup")
 async def startup_event():
+    if not auth.auth_enabled():
+        print("[STARTUP] WARNING: AUTH_USERNAME/AUTH_PASSWORD_HASH not set, API is unauthenticated.")
     print("[STARTUP] Starting air sensor automation...")
     asyncio.create_task(
         poll_air_sensor_task(
@@ -357,6 +360,20 @@ async def root():
         "status": "ok",
         "service": "NovingAIR local hub",
     }
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/auth/login")
+async def auth_login(body: LoginRequest, request: Request):
+    client = request.client.host if request.client else "unknown"
+    token = await asyncio.to_thread(auth.login, client, body.username, body.password)
+    return {"token": token, "expires_in": auth.TOKEN_TTL_SECONDS}
+
+@app.get("/auth/me")
+async def auth_me():
+    return {"ok": True}
 
 # ---------------------------------------------------------------------
 # Commands

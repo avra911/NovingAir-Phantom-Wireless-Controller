@@ -17,8 +17,8 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { OledColors } from '../constants/theme';
 import { ExternalLink } from '../components/external-link';
+import { apiFetch } from '../auth';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const PHANTOM_GLYPHS = {
   auto: '\ue900',
@@ -569,7 +569,7 @@ export default function Index() {
   useEffect(() => {
     const fetchState = async () => {
       try {
-        const res = await fetch(`${API_URL}/state`);
+        const res = await apiFetch('/state');
         if (res.ok) {
           const data: CombinedState = await res.json();
           setPhantomState(data.phantom);
@@ -587,7 +587,7 @@ export default function Index() {
 
     const fetchHistory = async () => {
       try {
-        const res = await fetch(`${API_URL}/history?limit=${HISTORY_LIMIT}`);
+        const res = await apiFetch(`/history?limit=${HISTORY_LIMIT}`);
         if (res.ok) {
           const data: HistoryResponse = await res.json();
           setHistorySamples(data.history ?? []);
@@ -616,7 +616,7 @@ export default function Index() {
   const fetchAutomationLog = async () => {
     setLogLoading(true);
     try {
-      const res = await fetch(`${API_URL}/logs/automation?lines=160`);
+      const res = await apiFetch('/logs/automation?lines=160');
       if (!res.ok) throw new Error(`Log request failed with HTTP status ${res.status}`);
       const data: AutomationLogResponse = await res.json();
       setAutomationLog(data.lines ?? []);
@@ -632,7 +632,7 @@ export default function Index() {
   const fetchPhantomStateHistory = async (page = stateHistoryPage) => {
     setStateHistoryLoading(true);
     try {
-      const res = await fetch(`${API_URL}/phantom-history?page=${page}&page_size=${PHANTOM_HISTORY_PAGE_SIZE}`);
+      const res = await apiFetch(`/phantom-history?page=${page}&page_size=${PHANTOM_HISTORY_PAGE_SIZE}`);
       if (!res.ok) throw new Error(`State history request failed with HTTP status ${res.status}`);
       const data: PhantomStateHistoryResponse = await res.json();
       const history = Array.isArray(data.history) ? data.history : [];
@@ -658,7 +658,7 @@ export default function Index() {
   const fetchStateRuntime = async () => {
     setStateRuntimeLoading(true);
     try {
-      const res = await fetch(`${API_URL}/phantom-runtime`);
+      const res = await apiFetch('/phantom-runtime');
       if (!res.ok) throw new Error(`State runtime request failed with HTTP status ${res.status}`);
       setStateRuntime(await res.json());
       setStateRuntimeAvailable(true);
@@ -680,7 +680,7 @@ export default function Index() {
     setLockActivityVersion((version) => version + 1);
     setLoading(actionKey);
     try {
-      const res = await fetch(`${API_URL}/command/${actionKey}`, {
+      const res = await apiFetch(`/command/${actionKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload ? JSON.stringify(payload) : undefined,

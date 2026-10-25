@@ -10,7 +10,6 @@
     "backgroundColor": "#050908",
     "android": {
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/phantom-mark.png",
         "monochromeImage": "./assets/images/phantom-mark-mono.png",
@@ -45,7 +44,17 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Phantom Remote to use Face ID to unlock the app."
+        }
+      ],
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
