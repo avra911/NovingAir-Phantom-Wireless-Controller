@@ -1433,7 +1433,10 @@ export default function Index() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.diagnosticsTab, diagnosticsTab === 'logs' && styles.diagnosticsTabActive]}
-              onPress={() => setDiagnosticsTab('logs')}
+              onPress={() => {
+                setDiagnosticsTab('logs');
+                fetchAutomationLog();
+              }}
               accessibilityRole="tab"
               accessibilityState={{ selected: diagnosticsTab === 'logs' }}
             >
@@ -1441,6 +1444,11 @@ export default function Index() {
             </TouchableOpacity>
           </View>
           {diagnosticsTab === 'logs' ? (
+            logLoading ? (
+              <View style={styles.stateHistoryLoading}>
+                <ActivityIndicator size="small" color="#7ef2d0" />
+              </View>
+            ) : (
             <>
               {!logAvailable ? (
                 <Text style={styles.diagnosticsEmpty}>Automation log is unavailable.</Text>
@@ -1460,6 +1468,7 @@ export default function Index() {
               )}
               <Text style={styles.diagnosticsFootnote}>Showing the latest {automationLog.length} entries from logs/automation.log · Bucharest time</Text>
             </>
+            )
           ) : diagnosticsTab === 'state_history' ? (
             stateHistoryLoading ? (
               <View style={styles.stateHistoryLoading}>
