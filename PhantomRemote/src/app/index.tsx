@@ -8,7 +8,8 @@ import {
   Alert,
   ScrollView,
   Modal,
-  Platform
+  Platform,
+  useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -529,6 +530,9 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
 }
 
 export default function Index() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const isCompactScreen = viewportWidth < 600;
+  const isVerySmallScreen = viewportWidth < 360;
   const [phantomState, setPhantomState] = useState<PhantomState>(DEFAULT_PHANTOM);
   const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics>(DEFAULT_SENSOR);
   const [loading, setLoading] = useState<string | null>(null);
@@ -917,7 +921,7 @@ export default function Index() {
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons name="air-filter" size={24} color="#8e9aaf" />
-              <Text style={styles.cardHeaderTitle}>AIR DETECTOR</Text>
+              <Text style={styles.cardHeaderTitle}>AIR MONITOR</Text>
             </View>
             <View style={styles.indicatorBlock}>
               <MaterialCommunityIcons
@@ -949,110 +953,110 @@ export default function Index() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.metricsGrid}>
+          <View style={[styles.metricsGrid, isCompactScreen && styles.metricsGridCompact]}>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'co2_ppm' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'co2_ppm' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('co2_ppm')}
               accessibilityRole="button"
               accessibilityLabel={`CO2 ${sensorMetrics.co2_ppm} parts per million`}
               accessibilityHint="Opens CO2 history"
             >
-              <Text style={styles.metricLabel}>CO2</Text>
-              <Text style={[styles.metricValue, { color: getCO2Color(sensorMetrics.co2_ppm) }]}>
-                {sensorMetrics.co2_ppm}<Text style={styles.unit}> ppm</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>CO2</Text>
+              <Text style={[styles.metricValue, { color: getCO2Color(sensorMetrics.co2_ppm) }]} allowFontScaling={false}>
+                {sensorMetrics.co2_ppm}<Text style={styles.unit} allowFontScaling={false}> ppm</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'temperature_c' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'temperature_c' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('temperature_c')}
               accessibilityRole="button"
               accessibilityLabel={`Temperature ${sensorMetrics.temperature_c} degrees Celsius`}
               accessibilityHint="Opens temperature history"
             >
-              <Text style={styles.metricLabel}>TEMP</Text>
-              <Text style={[styles.metricValue, { color: getTempColor(sensorMetrics.temperature_c) }]}>
-                {sensorMetrics.temperature_c}<Text style={styles.unit}> °C</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>TEMP</Text>
+              <Text style={[styles.metricValue, { color: getTempColor(sensorMetrics.temperature_c) }]} allowFontScaling={false}>
+                {sensorMetrics.temperature_c}<Text style={styles.unit} allowFontScaling={false}> °C</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'humidity_pct' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'humidity_pct' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('humidity_pct')}
               accessibilityRole="button"
               accessibilityLabel={`Humidity ${sensorMetrics.humidity_pct} percent`}
               accessibilityHint="Opens humidity history"
             >
-              <Text style={styles.metricLabel}>HUMIDITY</Text>
-              <Text style={[styles.metricValue, { color: getHumidityColor(sensorMetrics.humidity_pct) }]}>
-                {sensorMetrics.humidity_pct}<Text style={styles.unit}> %</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>HUMIDITY</Text>
+              <Text style={[styles.metricValue, { color: getHumidityColor(sensorMetrics.humidity_pct) }]} allowFontScaling={false}>
+                {sensorMetrics.humidity_pct}<Text style={styles.unit} allowFontScaling={false}> %</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'pm1_ugm3' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'pm1_ugm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('pm1_ugm3')}
             >
-              <Text style={styles.metricLabel}>PM1.0</Text>
-              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm1_ugm3) }]}>
-                {sensorMetrics.pm1_ugm3}<Text style={styles.unit}> µg/m³</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>PM1.0</Text>
+              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm1_ugm3) }]} allowFontScaling={false}>
+                {sensorMetrics.pm1_ugm3}<Text style={styles.unit} allowFontScaling={false}> µg/m³</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'pm25_ugm3' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'pm25_ugm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('pm25_ugm3')}
               accessibilityRole="button"
               accessibilityLabel={`PM2.5 ${sensorMetrics.pm25_ugm3} micrograms per cubic meter`}
               accessibilityHint="Opens PM2.5 history"
             >
-              <Text style={styles.metricLabel}>PM2.5</Text>
-              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm25_ugm3) }]}>
-                {sensorMetrics.pm25_ugm3}<Text style={styles.unit}> µg/m³</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>PM2.5</Text>
+              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm25_ugm3) }]} allowFontScaling={false}>
+                {sensorMetrics.pm25_ugm3}<Text style={styles.unit} allowFontScaling={false}> µg/m³</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'pm10_ugm3' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'pm10_ugm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('pm10_ugm3')}
             >
-              <Text style={styles.metricLabel}>PM10</Text>
-              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm10_ugm3) }]}>
-                {sensorMetrics.pm10_ugm3}<Text style={styles.unit}> µg/m³</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>PM10</Text>
+              <Text style={[styles.metricValue, { color: getPMColor(sensorMetrics.pm10_ugm3) }]} allowFontScaling={false}>
+                {sensorMetrics.pm10_ugm3}<Text style={styles.unit} allowFontScaling={false}> µg/m³</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'voc_mgm3' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'voc_mgm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('voc_mgm3')}
             >
-              <Text style={styles.metricLabel}>TVOC</Text>
-              <Text style={[styles.metricValue, { color: getTVOCColor(sensorMetrics.voc_mgm3) }]}>
-                {sensorMetrics.voc_mgm3}<Text style={styles.unit}> mg/m³</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>TVOC</Text>
+              <Text style={[styles.metricValue, { color: getTVOCColor(sensorMetrics.voc_mgm3) }]} allowFontScaling={false}>
+                {sensorMetrics.voc_mgm3}<Text style={styles.unit} allowFontScaling={false}> mg/m³</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.metricItem, activeHistoryMetric === 'ch2o_mgm3' && styles.metricItemActive]}
+              style={[styles.metricItem, isCompactScreen && styles.metricItemCompact, activeHistoryMetric === 'ch2o_mgm3' && styles.metricItemActive]}
               onPress={() => openHistoryMetric('ch2o_mgm3')}
             >
-              <Text style={styles.metricLabel}>HCHO</Text>
-              <Text style={[styles.metricValue, { color: getFormaldehyteColor(sensorMetrics.ch2o_mgm3) }]}>
-                {sensorMetrics.ch2o_mgm3}<Text style={styles.unit}> mg/m³</Text>
+              <Text style={styles.metricLabel} allowFontScaling={false}>HCHO</Text>
+              <Text style={[styles.metricValue, { color: getFormaldehyteColor(sensorMetrics.ch2o_mgm3) }]} allowFontScaling={false}>
+                {sensorMetrics.ch2o_mgm3}<Text style={styles.unit} allowFontScaling={false}> mg/m³</Text>
               </Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* --- ZIGBEE SENSORS PANEL --- */}
-        <View style={[styles.zigbeeContainer, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
+        <View style={[styles.zigbeeContainer, isCompactScreen && styles.zigbeeContainerCompact, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           {/* Indoor Sensor Box */}
-          <View style={styles.zigbeeCard}>
+          <View style={[styles.zigbeeCard, isCompactScreen && styles.zigbeeCardCompact]}>
             <View style={styles.zigbeeCardHeader}>
-              <View style={styles.indicatorBlock}>
+              <View style={styles.zigbeeHeaderGroup}>
                 <Ionicons name="home-outline" size={14} color="#8e9aaf" />
-                <Text style={styles.zigbeeCardTitle}>INDOOR</Text>
+                <Text style={styles.zigbeeCardTitle} numberOfLines={1} allowFontScaling={false}>INDOOR</Text>
               </View>
-              <View style={styles.indicatorBlock}>
+              <View style={styles.zigbeeHeaderGroup}>
                 <MaterialCommunityIcons
                   name={getBatteryIcon(indoorMetrics?.battery)}
                   size={14}
                   color={getBatteryColor(indoorMetrics?.battery)}
                 />
-                <Text style={styles.zigbeeBatteryText}>
+                <Text style={styles.zigbeeBatteryText} numberOfLines={1} allowFontScaling={false}>
                   {formatBatteryValue(indoorMetrics?.battery)}
                 </Text>
               </View>
@@ -1062,39 +1066,39 @@ export default function Index() {
                 style={[styles.zigbeeMetric, activeHistoryMetric === 'indoor_temperature_c' && styles.metricItemActive]}
                 onPress={() => openHistoryMetric('indoor_temperature_c')}
               >
-                <Text style={styles.metricLabel}>TEMP</Text>
-                <Text style={[styles.metricValue, { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }]}>
+                <Text style={styles.metricLabel} allowFontScaling={false}>TEMP</Text>
+                <Text style={[styles.metricValue, { color: indoorMetrics?.temperature_c !== undefined ? getTempColor(indoorMetrics.temperature_c) : '#6c757d' }]} allowFontScaling={false}>
                   {indoorMetrics?.temperature_c !== undefined ? indoorMetrics.temperature_c : '--'}
-                  <Text style={styles.unit}> °C</Text>
+                  <Text style={styles.unit} allowFontScaling={false}> °C</Text>
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.zigbeeMetric, activeHistoryMetric === 'indoor_humidity_pct' && styles.metricItemActive]}
                 onPress={() => openHistoryMetric('indoor_humidity_pct')}
               >
-                <Text style={styles.metricLabel}>HUM</Text>
-                <Text style={[styles.metricValue, { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }]}>
+                <Text style={styles.metricLabel} allowFontScaling={false}>HUM</Text>
+                <Text style={[styles.metricValue, { color: indoorMetrics?.humidity_pct !== undefined ? getHumidityColor(indoorMetrics.humidity_pct) : '#6c757d' }]} allowFontScaling={false}>
                   {indoorMetrics?.humidity_pct !== undefined ? indoorMetrics.humidity_pct : '--'}
-                  <Text style={styles.unit}> %</Text>
+                  <Text style={styles.unit} allowFontScaling={false}> %</Text>
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Outdoor Sensor Box */}
-          <View style={styles.zigbeeCard}>
+          <View style={[styles.zigbeeCard, isCompactScreen && styles.zigbeeCardCompact]}>
             <View style={styles.zigbeeCardHeader}>
-              <View style={styles.indicatorBlock}>
+              <View style={styles.zigbeeHeaderGroup}>
                 <Ionicons name="leaf-outline" size={14} color="#8e9aaf" />
-                <Text style={styles.zigbeeCardTitle}>OUTDOOR</Text>
+                <Text style={styles.zigbeeCardTitle} numberOfLines={1} allowFontScaling={false}>OUTDOOR</Text>
               </View>
-              <View style={styles.indicatorBlock}>
+              <View style={styles.zigbeeHeaderGroup}>
                 <MaterialCommunityIcons
                   name={getBatteryIcon(outdoorMetrics?.battery)}
                   size={14}
                   color={getBatteryColor(outdoorMetrics?.battery)}
                 />
-                <Text style={styles.zigbeeBatteryText}>
+                <Text style={styles.zigbeeBatteryText} numberOfLines={1} allowFontScaling={false}>
                   {formatBatteryValue(outdoorMetrics?.battery)}
                 </Text>
               </View>
@@ -1104,20 +1108,20 @@ export default function Index() {
                 style={[styles.zigbeeMetric, activeHistoryMetric === 'outdoor_temperature_c' && styles.metricItemActive]}
                 onPress={() => openHistoryMetric('outdoor_temperature_c')}
               >
-                <Text style={styles.metricLabel}>TEMP</Text>
-                <Text style={[styles.metricValue, { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }]}>
+                <Text style={styles.metricLabel} allowFontScaling={false}>TEMP</Text>
+                <Text style={[styles.metricValue, { color: outdoorMetrics?.temperature_c !== undefined ? getTempColor(outdoorMetrics.temperature_c) : '#6c757d' }]} allowFontScaling={false}>
                   {outdoorMetrics?.temperature_c !== undefined ? outdoorMetrics.temperature_c : '--'}
-                  <Text style={styles.unit}> °C</Text>
+                  <Text style={styles.unit} allowFontScaling={false}> °C</Text>
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.zigbeeMetric, activeHistoryMetric === 'outdoor_humidity_pct' && styles.metricItemActive]}
                 onPress={() => openHistoryMetric('outdoor_humidity_pct')}
               >
-                <Text style={styles.metricLabel}>HUM</Text>
-                <Text style={[styles.metricValue, { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }]}>
+                <Text style={styles.metricLabel} allowFontScaling={false}>HUM</Text>
+                <Text style={[styles.metricValue, { color: outdoorMetrics?.humidity_pct !== undefined ? getHumidityColor(outdoorMetrics.humidity_pct) : '#6c757d' }]} allowFontScaling={false}>
                   {outdoorMetrics?.humidity_pct !== undefined ? outdoorMetrics.humidity_pct : '--'}
-                  <Text style={styles.unit}> %</Text>
+                  <Text style={styles.unit} allowFontScaling={false}> %</Text>
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1126,7 +1130,7 @@ export default function Index() {
 
         <View style={[styles.currentStatusCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           <View style={styles.currentStatusHeader}>
-            <View>
+            <View style={styles.currentStatusHeaderCopy}>
               <Text style={styles.sectionEyebrow}>CURRENT STATUS</Text>
               <Text style={styles.currentStatusTitle}>Phantom is {phantomState.automation_enabled ? 'running automatically' : 'under manual control'}</Text>
             </View>
@@ -1178,10 +1182,13 @@ export default function Index() {
             </Text>
           </View>
 
-          <View style={styles.lcdRow}>
+          <View style={[styles.lcdControlGrid, isCompactScreen && styles.lcdControlGridCompact]}>
             <TouchableOpacity
               style={[
                 styles.statusBox,
+                styles.statusBoxGridItem,
+                isCompactScreen && styles.statusBoxGridItemCompact,
+                isVerySmallScreen && styles.statusBoxGridItemVerySmall,
                 phantomState.mode !== 'NONE' && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
@@ -1202,12 +1209,15 @@ export default function Index() {
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, (!modeClickable || phantomState.boost) && styles.controlLabelDisabled]}>{displayMode}</Text>
+              <Text style={[styles.controlLabel, (!modeClickable || phantomState.boost) && styles.controlLabelDisabled]} allowFontScaling={false}>{displayMode}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
+              styles.statusBoxGridItem,
+              isCompactScreen && styles.statusBoxGridItemCompact,
+              isVerySmallScreen && styles.statusBoxGridItemVerySmall,
               speedStatusActive && (passiveControlsDimmed && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
@@ -1225,12 +1235,15 @@ export default function Index() {
                 level={phantomState.speed}
                 color={getControlIconColor(speedClickable)}
               />
-              <Text style={[styles.controlLabel, (!speedClickable || phantomState.boost) && styles.controlLabelDisabled]}>SPEED {phantomState.speed}</Text>
+              <Text style={[styles.controlLabel, (!speedClickable || phantomState.boost) && styles.controlLabelDisabled]} allowFontScaling={false}>SPEED {phantomState.speed}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
+              styles.statusBoxGridItem,
+              isCompactScreen && styles.statusBoxGridItemCompact,
+              isVerySmallScreen && styles.statusBoxGridItemVerySmall,
               humidityStatusActive && (passiveControlsDimmed && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
@@ -1248,14 +1261,14 @@ export default function Index() {
                 level={phantomState.humidity}
                 color={getControlIconColor(humidityClickable)}
               />
-              <Text style={[styles.controlLabel, (!humidityClickable || phantomState.boost) && styles.controlLabelDisabled]}>HUMIDITY {phantomState.humidity}</Text>
+              <Text style={[styles.controlLabel, (!humidityClickable || phantomState.boost) && styles.controlLabelDisabled]} allowFontScaling={false}>HUMIDITY {phantomState.humidity}</Text>
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.lcdRow}>
             <TouchableOpacity
               style={[
                 styles.statusBox,
+                styles.statusBoxGridItem,
+                isCompactScreen && styles.statusBoxGridItemCompact,
+                isVerySmallScreen && styles.statusBoxGridItemVerySmall,
                 phantomState.flux !== 'NONE' && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
@@ -1276,7 +1289,7 @@ export default function Index() {
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, (!fluxClickable || phantomState.boost) && styles.controlLabelDisabled]}>
+              <Text style={[styles.controlLabel, (!fluxClickable || phantomState.boost) && styles.controlLabelDisabled]} allowFontScaling={false}>
                 {displayFlux === 'NONE' ? 'INFLOW' : fluxLabel.toUpperCase()}
               </Text>
             </TouchableOpacity>
@@ -1284,6 +1297,9 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
+                styles.statusBoxGridItem,
+                isCompactScreen && styles.statusBoxGridItemCompact,
+                isVerySmallScreen && styles.statusBoxGridItemVerySmall,
                 phantomState.night && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
@@ -1297,12 +1313,15 @@ export default function Index() {
               accessibilityState={{ disabled: !nightClickable, selected: phantomState.night && !phantomState.boost }}
             >
               <PhantomGlyph name="night" color={getControlIconColor(nightClickable)} />
-              <Text style={[styles.controlLabel, (!nightClickable || phantomState.boost) && styles.controlLabelDisabled]}>NIGHT</Text>
+              <Text style={[styles.controlLabel, (!nightClickable || phantomState.boost) && styles.controlLabelDisabled]} allowFontScaling={false}>NIGHT</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.statusBox,
+                styles.statusBoxGridItem,
+                isCompactScreen && styles.statusBoxGridItemCompact,
+                isVerySmallScreen && styles.statusBoxGridItemVerySmall,
                 phantomState.boost && (phantomState.automation_enabled && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
@@ -1317,11 +1336,8 @@ export default function Index() {
               accessibilityState={{ disabled: !boostClickable, selected: phantomState.boost }}
             >
               <PhantomGlyph name="temp_evac" color={boostClickable ? "#00ffcc" : "#444"} />
-              <Text style={[styles.controlLabel, !boostClickable && styles.controlLabelDisabled]}>BOOST</Text>
+              <Text style={[styles.controlLabel, !boostClickable && styles.controlLabelDisabled]} allowFontScaling={false}>BOOST</Text>
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.lcdRow}>
             {buttons.map((btn) => {
               const isDisabled = loading !== null
                 || (controlsLocked && btn.key !== "TOGGLE_LOCK")
@@ -1340,7 +1356,9 @@ export default function Index() {
                   key={btn.key}
                   style={[
                     styles.statusBox,
-                    { flex: 1, width: 0 },
+                    styles.statusBoxGridItem,
+                    isCompactScreen && styles.statusBoxGridItemCompact,
+                    isVerySmallScreen && styles.statusBoxGridItemVerySmall,
                     isSelected && btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled && !controlsLocked
                       ? styles.statusBoxHighlighted
                       : isSelected && (phantomState.automation_enabled && !controlsLocked
@@ -1375,7 +1393,7 @@ export default function Index() {
                           && btn.key !== "TOGGLE_AUTO"
                           && (controlsLocked || isVisuallyDisabled || isSelected)
                           && styles.statusBoxLabelDisabled,
-                      ]}>
+                      ]} allowFontScaling={false}>
                         {btn.label}
                       </Text>
                     </>
@@ -1756,7 +1774,7 @@ const styles = StyleSheet.create({
   loadingMark: { width: 112, height: 112 },
   loadingBrand: { color: '#7ef2d0', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
   loadingMessage: { color: '#c4d2ce', fontSize: 13, fontWeight: '600' },
-  scrollContent: { alignItems: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  scrollContent: { width: '100%', alignItems: 'center', paddingVertical: 24, paddingHorizontal: 16 },
   appHeader: {
     width: '100%',
     maxWidth: 760,
@@ -1856,6 +1874,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     rowGap: 10,
   },
+  metricsGridCompact: { rowGap: 8 },
   metricItem: {
     width: '24%',
     minHeight: 54,
@@ -1865,13 +1884,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
+  metricItemCompact: { width: '48%' },
   metricItemActive: {
     borderColor: '#00ffcc',
     backgroundColor: '#001a14',
   },
   metricLabel: { color: '#657673', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
-  metricValue: { color: '#f4faf8', fontSize: 14, fontWeight: 'bold', fontFamily: 'monospace' },
-  unit: { fontSize: 9, color: '#9aa9a7' },
+  metricValue: { color: '#f4faf8', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
+  unit: { fontSize: 7, color: '#9aa9a7' },
   hiddenView: { display: 'none' },
   homeTabs: {
     width: '100%',
@@ -2126,6 +2146,7 @@ const styles = StyleSheet.create({
     maxWidth: 760,
     marginBottom: 20,
   },
+  zigbeeContainerCompact: { flexDirection: 'column', gap: 8 },
   zigbeeCard: {
     width: '49%',
     backgroundColor: '#000000',
@@ -2135,25 +2156,31 @@ const styles = StyleSheet.create({
     borderColor: '#222222',
     alignItems: 'center',
   },
+  zigbeeCardCompact: { width: '100%' },
   zigbeeCardHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    rowGap: 6,
     width: '100%',
     borderBottomWidth: 1,
     borderBottomColor: '#222222',
     paddingBottom: 6,
   },
+  zigbeeHeaderGroup: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0, flexShrink: 1 },
   zigbeeCardTitle: {
     color: '#8e9aaf',
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
+    flexShrink: 1,
   },
   zigbeeBatteryText: {
     color: '#8e9aaf',
     fontSize: 10,
     fontFamily: 'monospace',
+    flexShrink: 1,
   },
   zigbeeMetricsRow: {
     flexDirection: 'row',
@@ -2218,7 +2245,8 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
-  currentStatusTitle: { color: '#f4faf8', fontSize: 14, fontWeight: '700', marginTop: 4 },
+  currentStatusHeaderCopy: { flex: 1, minWidth: 0 },
+  currentStatusTitle: { color: '#f4faf8', fontSize: 14, fontWeight: '700', marginTop: 4, flexShrink: 1 },
   automationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2226,6 +2254,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 9,
     paddingVertical: 6,
+    flexShrink: 0,
   },
   automationBadgeOn: { backgroundColor: '#06241d' },
   automationBadgeOff: { backgroundColor: '#18201f' },
@@ -2243,7 +2272,8 @@ const styles = StyleSheet.create({
   },
   currentStatusLabel: { color: '#657673', fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
   currentStatusValue: { color: '#7ef2d0', fontSize: 13, fontWeight: '700', marginTop: 4 },
-  lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 8 },
+  lcdControlGrid: { width: '100%', alignSelf: 'stretch', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'stretch', rowGap: 8 },
+  lcdControlGridCompact: { rowGap: 6 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
     flex: 1,
@@ -2260,6 +2290,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 0,
   },
+  statusBoxGridItem: { flexGrow: 0, flexShrink: 0, flexBasis: '32%', marginHorizontal: 0 },
+  statusBoxGridItemCompact: { flexBasis: '48%', minHeight: 96, paddingHorizontal: 4 },
+  statusBoxGridItemVerySmall: { flexBasis: '100%' },
   statusBoxHighlighted: { borderColor: '#00d9ae', backgroundColor: '#06241d' },
   statusBoxAutoHighlighted: { borderColor: '#245e50', backgroundColor: '#071512' },
   statusBoxDisabledBorder: { borderColor: '#1b2926', backgroundColor: '#0a0d0d' },
