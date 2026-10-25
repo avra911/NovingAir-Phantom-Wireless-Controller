@@ -120,6 +120,51 @@ async def test_mode_and_flux_commands_disable_night(monkeypatch, action, expecte
 
 
 @pytest.mark.parametrize(
+    ("mode", "flux", "last_mode", "last_flux", "restore_command"),
+    [
+        ("SLEEP", "NONE", "SLEEP", "NORTH_SOUTH", "MODE_SLEEP"),
+        ("NONE", "EXTRACT", "MANUAL", "EXTRACT", "FLUX_EXTRACT"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_toggling_night_restores_previous_state(
+    monkeypatch, mode, flux, last_mode, last_flux, restore_command
+):
+    previous_state = {
+        "mode": mode,
+        "last_mode": last_mode,
+        "speed": 2,
+        "humidity": 3,
+        "flux": flux,
+        "last_flux": last_flux,
+        "night": False,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    state = previous_state.copy()
+    sent_commands = []
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "send_ir_button", sent_commands.append)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+
+    await server.command("NIGHT")
+    assert state["night"] is True
+    assert state["mode"] == "NONE"
+    assert state["flux"] == "NONE"
+
+    await server.command("NIGHT")
+
+    assert {key: state[key] for key in previous_state} == previous_state
+    assert sent_commands == [
+        "MODE_NIGHT",
+        "MODE_NIGHT",
+        restore_command,
+        "SPEED_2",
+        "HUMIDITY_3",
+    ]
+
+
+@pytest.mark.parametrize(
     ("action", "snapshot", "expected_mode", "expected_flux", "expected_commands"),
     [
         (

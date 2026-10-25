@@ -178,6 +178,23 @@ def _disable_night_mode() -> None:
     if CURRENT_STATE.get("night"):
         send_ir_button("MODE_NIGHT")
         CURRENT_STATE["night"] = False
+    CURRENT_STATE.pop("night_previous_state", None)
+
+
+def _restore_state_snapshot(snapshot: dict) -> None:
+    mode = snapshot.get("mode")
+    flux = snapshot.get("flux")
+    if mode in {"AUTO", "SLEEP", "MANUAL"}:
+        send_ir_button(f"MODE_{mode}")
+    elif flux in {"SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"}:
+        send_ir_button(f"FLUX_{flux}")
+    if snapshot.get("speed") in {1, 2, 3}:
+        send_ir_button(f"SPEED_{snapshot['speed']}")
+    if snapshot.get("humidity") in {1, 2, 3}:
+        send_ir_button(f"HUMIDITY_{snapshot['humidity']}")
+    if snapshot.get("night"):
+        send_ir_button("MODE_NIGHT")
+    CURRENT_STATE.update(snapshot)
 
 
 def _restore_boost_state() -> None:
@@ -192,19 +209,7 @@ def _restore_boost_state() -> None:
             "automation_enabled": True,
         }
 
-    mode = snapshot.get("mode")
-    flux = snapshot.get("flux")
-    if mode in {"AUTO", "SLEEP", "MANUAL"}:
-        send_ir_button(f"MODE_{mode}")
-    elif flux in {"SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"}:
-        send_ir_button(f"FLUX_{flux}")
-    if snapshot.get("speed") in {1, 2, 3}:
-        send_ir_button(f"SPEED_{snapshot['speed']}")
-    if snapshot.get("humidity") in {1, 2, 3}:
-        send_ir_button(f"HUMIDITY_{snapshot['humidity']}")
-    if snapshot.get("night"):
-        send_ir_button("MODE_NIGHT")
-    CURRENT_STATE.update(snapshot)
+    _restore_state_snapshot(snapshot)
     CURRENT_STATE["boost"] = False
     CURRENT_STATE.pop("boost_expires_at", None)
     save_state(CURRENT_STATE)
@@ -416,10 +421,16 @@ async def command(action: str):
     elif action == "NIGHT":
         if CURRENT_STATE.get("boost"):
             await _stop_boost()
-        new_night = not CURRENT_STATE.get("night", False)
-        send_ir_button("MODE_NIGHT")
-        CURRENT_STATE["night"] = new_night
-        if new_night:
+        if CURRENT_STATE.get("night"):
+            snapshot = CURRENT_STATE.pop("night_previous_state", None)
+            send_ir_button("MODE_NIGHT")
+            if isinstance(snapshot, dict):
+                _restore_state_snapshot(snapshot)
+            CURRENT_STATE["night"] = False
+        else:
+            CURRENT_STATE["night_previous_state"] = _boost_snapshot()
+            send_ir_button("MODE_NIGHT")
+            CURRENT_STATE["night"] = True
             CURRENT_STATE["mode"] = "NONE"
             CURRENT_STATE["flux"] = "NONE"
             CURRENT_STATE["boost"] = False
