@@ -199,7 +199,7 @@ const STATE_RUNTIME_CATEGORIES: Array<{ key: StateRuntimeCategory; label: string
   { key: 'night', label: 'Night', color: '#8e9aaf' },
   { key: 'speed_1', label: 'Speed 1', color: '#7ef2d0' },
   { key: 'speed_2', label: 'Speed 2', color: '#3498db' },
-  { key: 'speed_3', label: 'Speed 3 · Boost', color: '#f1c40f' },
+  { key: 'speed_3', label: 'Speed 3', color: '#f1c40f' },
 ];
 const PHANTOM_UNIT_COUNT = 4;
 const HOURS_PER_AVERAGE_YEAR = 365.25 * 24;
@@ -546,7 +546,7 @@ export default function Index() {
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [logAvailable, setLogAvailable] = useState(true);
   const [logLoading, setLogLoading] = useState(false);
-  const [diagnosticsTab, setDiagnosticsTab] = useState<DiagnosticsTab>('logs');
+  const [diagnosticsTab, setDiagnosticsTab] = useState<DiagnosticsTab>('state_chart');
   const [phantomStateHistory, setPhantomStateHistory] = useState<PhantomStateHistoryEntry[]>([]);
   const [stateHistoryPage, setStateHistoryPage] = useState(1);
   const [stateHistoryTotal, setStateHistoryTotal] = useState(0);
@@ -555,6 +555,15 @@ export default function Index() {
   const [stateRuntime, setStateRuntime] = useState<PhantomStateRuntimeResponse | null>(null);
   const [stateRuntimeAvailable, setStateRuntimeAvailable] = useState(true);
   const [stateRuntimeLoading, setStateRuntimeLoading] = useState(false);
+  const stateRuntimeBreakdown = stateRuntime
+    ? STATE_RUNTIME_CATEGORIES.map((category) => {
+      const seconds = Math.max(0, stateRuntime.durations_seconds[category.key] ?? 0);
+      const percentage = stateRuntime.total_seconds > 0
+        ? Math.min(100, seconds / stateRuntime.total_seconds * 100)
+        : 0;
+      return { ...category, seconds, percentage };
+    })
+    : [];
   const [fontsLoaded] = useFonts({ Phantom: require('../../assets/fonts/Phantom.ttf') });
   const hourlyConsumptionEstimate = stateRuntime ? getAverageHourlyConsumption(stateRuntime) : null;
 
@@ -1401,12 +1410,15 @@ export default function Index() {
           </View>
           <View style={styles.diagnosticsTabs} accessibilityRole="tablist">
             <TouchableOpacity
-              style={[styles.diagnosticsTab, diagnosticsTab === 'logs' && styles.diagnosticsTabActive]}
-              onPress={() => setDiagnosticsTab('logs')}
+              style={[styles.diagnosticsTab, diagnosticsTab === 'state_chart' && styles.diagnosticsTabActive]}
+              onPress={() => {
+                setDiagnosticsTab('state_chart');
+                fetchStateRuntime();
+              }}
               accessibilityRole="tab"
-              accessibilityState={{ selected: diagnosticsTab === 'logs' }}
+              accessibilityState={{ selected: diagnosticsTab === 'state_chart' }}
             >
-              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'logs' && styles.diagnosticsTabTextActive]}>Logs</Text>
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_chart' && styles.diagnosticsTabTextActive]}>State chart</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.diagnosticsTab, diagnosticsTab === 'state_history' && styles.diagnosticsTabActive]}
@@ -1420,15 +1432,12 @@ export default function Index() {
               <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_history' && styles.diagnosticsTabTextActive]}>State history</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.diagnosticsTab, diagnosticsTab === 'state_chart' && styles.diagnosticsTabActive]}
-              onPress={() => {
-                setDiagnosticsTab('state_chart');
-                fetchStateRuntime();
-              }}
+              style={[styles.diagnosticsTab, diagnosticsTab === 'logs' && styles.diagnosticsTabActive]}
+              onPress={() => setDiagnosticsTab('logs')}
               accessibilityRole="tab"
-              accessibilityState={{ selected: diagnosticsTab === 'state_chart' }}
+              accessibilityState={{ selected: diagnosticsTab === 'logs' }}
             >
-              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_chart' && styles.diagnosticsTabTextActive]}>State chart</Text>
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'logs' && styles.diagnosticsTabTextActive]}>Logs</Text>
             </TouchableOpacity>
           </View>
           {diagnosticsTab === 'logs' ? (
@@ -1559,43 +1568,50 @@ export default function Index() {
               <Text style={styles.stateRuntimePeriod} numberOfLines={2}>
                 Since {stateRuntime.started_at ? new Date(stateRuntime.started_at).toLocaleString() : 'unknown'}
               </Text>
-              {STATE_RUNTIME_CATEGORIES.map((category) => {
-                const seconds = Math.max(0, stateRuntime.durations_seconds[category.key] ?? 0);
-                const percentage = stateRuntime.total_seconds > 0 ? Math.min(100, seconds / stateRuntime.total_seconds * 100) : 0;
-                return (
-                  <View key={category.key} style={styles.stateRuntimeRow}>
-                    <View style={styles.stateRuntimeLabelRow}>
+              <View
+                style={styles.stateRuntimeTrack}
+                accessibilityRole="image"
+                accessibilityLabel={stateRuntimeBreakdown
+                  .map((category) => `${category.label}: ${category.percentage.toFixed(1)} percent`)
+                  .join(', ')}
+              >
+                {stateRuntimeBreakdown.map((category) => (
+                  <View
+                    key={category.key}
+                    style={[styles.stateRuntimeBar, { width: `${category.percentage}%`, backgroundColor: category.color }]}
+                  />
+                ))}
+              </View>
+              <View style={styles.stateRuntimeBreakdown}>
+                {stateRuntimeBreakdown.map((category) => (
+                  <View key={category.key} style={styles.stateRuntimeBreakdownItem}>
+                    <View style={styles.stateRuntimeBreakdownLabelRow}>
                       <View style={[styles.stateRuntimeSwatch, { backgroundColor: category.color }]} />
                       <Text style={styles.stateRuntimeLabel}>{category.label}</Text>
-                      <Text style={styles.stateRuntimeValue}>{formatRuntimeDuration(seconds)} · {percentage.toFixed(1)}%</Text>
                     </View>
-                    <View style={styles.stateRuntimeTrack}>
-                      <View style={[styles.stateRuntimeBar, { width: `${percentage}%`, backgroundColor: category.color }]} />
-                    </View>
+                    <Text style={styles.stateRuntimeValue}>
+                      {formatRuntimeDuration(category.seconds)} · {category.percentage.toFixed(1)}%
+                    </Text>
                   </View>
-                );
-              })}
+                ))}
+              </View>
               <Text style={styles.diagnosticsFootnote}>
                 Boost is included in Speed 3.{"\n"}Night runtime is counted separately.
               </Text>
-              <View style={styles.stateEnergySummary}>
-                <View style={styles.stateEnergyRow}>
-                  <View style={styles.stateEnergyDetails}>
-                    <Text style={styles.stateEnergyLabel}>Average hourly consumption</Text>
-                    <Text style={styles.stateEnergyCaption}>
-                      4 units · {hourlyConsumptionEstimate ? `based on ${formatRuntimeDuration(hourlyConsumptionEstimate.runtimeSeconds)} runtime` : 'period unavailable'}
-                    </Text>
-                  </View>
-                  <Text style={styles.stateEnergyValue}>
+              <View style={styles.stateRuntimeInsights}>
+                <View style={styles.stateRuntimeInsight}>
+                  <Text style={styles.stateRuntimeInsightLabel}>Average hourly consumption</Text>
+                  <Text style={styles.stateRuntimeInsightCaption}>
+                    4 units · {hourlyConsumptionEstimate ? `based on ${formatRuntimeDuration(hourlyConsumptionEstimate.runtimeSeconds)} runtime` : 'period unavailable'}
+                  </Text>
+                  <Text style={styles.stateRuntimeInsightValue}>
                     {hourlyConsumptionEstimate ? `${(hourlyConsumptionEstimate.kwhPerHour * 1000).toFixed(1)} W` : 'Unavailable'}
                   </Text>
                 </View>
-                <View style={[styles.stateEnergyRow, styles.stateEnergyYearlyRow]}>
-                  <View style={styles.stateEnergyDetails}>
-                    <Text style={styles.stateEnergyLabel}>Estimated yearly consumption</Text>
-                    <Text style={styles.stateEnergyCaption}>If this operating mix continues</Text>
-                  </View>
-                  <Text style={styles.stateEnergyValue}>
+                <View style={[styles.stateRuntimeInsight, styles.stateRuntimeInsightDivider]}>
+                  <Text style={styles.stateRuntimeInsightLabel}>Estimated yearly consumption</Text>
+                  <Text style={styles.stateRuntimeInsightCaption}>If this operating mix continues</Text>
+                  <Text style={styles.stateRuntimeInsightValue}>
                     {hourlyConsumptionEstimate ? `${hourlyConsumptionEstimate.kwhPerYear.toFixed(1)} kWh/yr` : 'Unavailable'}
                   </Text>
                 </View>
@@ -1916,27 +1932,28 @@ const styles = StyleSheet.create({
   stateHistoryPageButtonDisabled: { opacity: 0.5 },
   stateHistoryPageText: { color: '#9aa9a7', fontSize: 10, fontWeight: '700' },
   stateHistoryPageIndicator: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace', minWidth: 54, textAlign: 'center' },
-  stateRuntimeChart: { paddingVertical: 8 },
+  stateRuntimeChart: { paddingVertical: 4 },
   stateRuntimeSummary: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   stateRuntimeTotal: { color: '#f4faf8', fontSize: 22, fontWeight: '700', fontFamily: 'monospace' },
   stateRuntimeCaption: { color: '#657673', fontSize: 10, fontWeight: '700' },
-  stateRuntimePeriod: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 4, marginBottom: 20 },
-  stateRuntimeRow: { marginBottom: 16 },
-  stateRuntimeLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
+  stateRuntimePeriod: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 3, marginBottom: 12 },
+  stateRuntimeBreakdown: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginTop: 12 },
+  stateRuntimeBreakdownItem: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#14201d' },
+  stateRuntimeBreakdownLabelRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7 },
   stateRuntimeSwatch: { width: 8, height: 8, borderRadius: 4 },
   stateRuntimeLabel: { color: '#c4d2ce', fontSize: 11, fontWeight: '700', flex: 1 },
   stateRuntimeValue: { color: '#9aa9a7', fontSize: 10, fontFamily: 'monospace' },
-  stateRuntimeTrack: { height: 8, backgroundColor: '#151d1b', borderRadius: 4, overflow: 'hidden' },
-  stateRuntimeBar: { height: '100%', borderRadius: 4 },
-  stateEnergySummary: { borderTopWidth: 1, borderTopColor: '#1b2926', marginTop: 16, paddingTop: 4 },
-  stateEnergyRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
-  stateEnergyYearlyRow: { borderTopWidth: 1, borderTopColor: '#14201d', borderBottomWidth: 1, borderBottomColor: '#14201d' },
-  stateEnergyDetails: { flex: 1, minWidth: 0 },
+  stateRuntimeTrack: { height: 12, flexDirection: 'row', backgroundColor: '#151d1b', borderRadius: 6, overflow: 'hidden', marginTop: 12 },
+  stateRuntimeBar: { height: '100%' },
+  stateRuntimeInsights: { flexDirection: 'row', marginTop: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#1b2926', borderBottomWidth: 1, borderBottomColor: '#14201d' },
+  stateRuntimeInsight: { flex: 1, minWidth: 0, justifyContent: 'center', paddingHorizontal: 7 },
+  stateRuntimeInsightDivider: { borderLeftWidth: 1, borderLeftColor: '#14201d' },
+  stateRuntimeInsightLabel: { color: '#c4d2ce', fontSize: 9, lineHeight: 12, fontWeight: '700' },
+  stateRuntimeInsightCaption: { color: '#657673', fontSize: 8, lineHeight: 11, marginTop: 3 },
+  stateRuntimeInsightValue: { color: '#7ef2d0', fontSize: 12, lineHeight: 16, fontWeight: '700', fontFamily: 'monospace', marginTop: 4 },
   stateEnergyLabel: { color: '#c4d2ce', fontSize: 12, fontWeight: '700' },
-  stateEnergyCaption: { color: '#657673', fontSize: 10, lineHeight: 14, marginTop: 4 },
-  stateEnergyValue: { color: '#7ef2d0', fontSize: 17, fontWeight: '700', fontFamily: 'monospace' },
-  statePowerBreakdown: { marginTop: 16 },
-  statePowerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#14201d' },
+  statePowerBreakdown: { marginTop: 12 },
+  statePowerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#14201d' },
   statePowerLabel: { color: '#9aa9a7', fontSize: 11 },
   statePowerValue: { color: '#c4d2ce', fontSize: 11, fontFamily: 'monospace' },
   diagnosticsFootnote: { color: '#657673', fontSize: 10, fontFamily: 'monospace', marginTop: 10 },
