@@ -174,6 +174,12 @@ def _boost_snapshot() -> dict:
     }
 
 
+def _disable_night_mode() -> None:
+    if CURRENT_STATE.get("night"):
+        send_ir_button("MODE_NIGHT")
+        CURRENT_STATE["night"] = False
+
+
 def _restore_boost_state() -> None:
     snapshot = CURRENT_STATE.pop("boost_previous_state", None)
     if not isinstance(snapshot, dict):
@@ -213,6 +219,7 @@ async def _boost_timer(expires_at: float) -> None:
 async def _start_boost() -> None:
     global boost_task
 
+    _disable_night_mode()
     snapshot = _boost_snapshot()
     expires_at = time.time() + BOOST_DURATION_SECONDS
     send_ir_button("BOOST")
@@ -364,33 +371,43 @@ async def command(action: str):
 
     elif action == "MODE":
         modes = ["AUTO", "SLEEP", "MANUAL"]
+        boost_was_active = CURRENT_STATE.get("boost", False)
+        if boost_was_active:
+            await _stop_boost()
         current_mode = CURRENT_STATE.get("mode", "AUTO")
-        if current_mode == "NONE":
+        if boost_was_active and current_mode in modes:
+            new_mode = current_mode
+        elif current_mode == "NONE":
             remembered_mode = CURRENT_STATE.get("last_mode", "AUTO")
             new_mode = remembered_mode if remembered_mode in modes else "AUTO"
         else:
             idx = modes.index(current_mode) if current_mode in modes else -1
             new_mode = modes[(idx + 1) % len(modes)]
-        if CURRENT_STATE.get("boost"):
-            await _stop_boost()
-        send_ir_button(f"MODE_{new_mode}")
+        _disable_night_mode()
+        if not (boost_was_active and current_mode in modes):
+            send_ir_button(f"MODE_{new_mode}")
         CURRENT_STATE["mode"] = new_mode
         CURRENT_STATE["last_mode"] = new_mode
         CURRENT_STATE["flux"] = "NONE"
         CURRENT_STATE["boost"] = False
 
     elif action == "FLUX":
-        if CURRENT_STATE.get("boost"):
+        boost_was_active = CURRENT_STATE.get("boost", False)
+        if boost_was_active:
             await _stop_boost()
+        _disable_night_mode()
         fluxes = ["SOUTH_NORTH", "EXTRACT", "INTAKE", "NORTH_SOUTH"]
         current_flux = CURRENT_STATE.get("flux", "NONE")
-        if current_flux == "NONE":
+        if boost_was_active and current_flux in fluxes:
+            new_flux = current_flux
+        elif current_flux == "NONE":
             remembered_flux = CURRENT_STATE.get("last_flux", "NORTH_SOUTH")
             new_flux = remembered_flux if remembered_flux in fluxes else "NORTH_SOUTH"
         else:
             idx = fluxes.index(current_flux) if current_flux in fluxes else -1
             new_flux = fluxes[(idx + 1) % len(fluxes)]
-        send_ir_button(f"FLUX_{new_flux}")
+        if not (boost_was_active and current_flux in fluxes):
+            send_ir_button(f"FLUX_{new_flux}")
         CURRENT_STATE["flux"] = new_flux
         CURRENT_STATE["last_flux"] = new_flux
         CURRENT_STATE["mode"] = "NONE"

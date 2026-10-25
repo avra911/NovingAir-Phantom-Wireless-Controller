@@ -10,7 +10,7 @@ The project has two parts:
 ## Requirements
 
 - Python 3.10+
-- A Python virtual environment with `tinytuya`, `fastapi`, and `uvicorn`
+- A Python virtual environment; backend dependencies are listed in `requirements.txt`
 - Node.js, npm, and global `serve` package (`sudo npm install -g serve`)
 - The Tuya IR blaster and air-quality sensor reachable on the local network
 
@@ -48,6 +48,8 @@ From the repository root:
 
 ```bash
 source .venv/bin/activate
+python -m ensurepip --upgrade
+python -m pip install -r requirements.txt
 python3 server.py
 ```
 

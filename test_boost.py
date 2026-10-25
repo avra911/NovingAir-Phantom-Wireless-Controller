@@ -32,7 +32,7 @@ def _snapshot(state):
 
 
 @pytest.mark.asyncio
-async def test_start_boost_only_changes_boost_state(monkeypatch):
+async def test_start_boost_disables_night_mode(monkeypatch):
     state = _state()
     sent_commands = []
 
@@ -43,13 +43,13 @@ async def test_start_boost_only_changes_boost_state(monkeypatch):
 
     await server._start_boost()
 
-    assert sent_commands == ["BOOST"]
+    assert sent_commands == ["MODE_NIGHT", "BOOST"]
     assert state["boost"] is True
     assert state["mode"] == "SLEEP"
     assert state["speed"] == 1
     assert state["humidity"] == 2
     assert state["flux"] == "SOUTH_NORTH"
-    assert state["night"] is True
+    assert state["night"] is False
     assert state["automation_enabled"] is True
     assert state["boost_previous_state"] == _snapshot(state)
     assert state["boost_expires_at"] > 0

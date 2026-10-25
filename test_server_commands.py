@@ -91,6 +91,79 @@ async def test_flux_is_restored_after_switching_to_mode(monkeypatch):
     assert state["flux"] == "EXTRACT"
 
 
+@pytest.mark.parametrize(
+    ("action", "expected_command"),
+    [("MODE", "MODE_MANUAL"), ("FLUX", "FLUX_INTAKE")],
+)
+@pytest.mark.asyncio
+async def test_mode_and_flux_commands_disable_night(monkeypatch, action, expected_command):
+    state = {
+        "mode": "SLEEP",
+        "last_mode": "SLEEP",
+        "speed": 2,
+        "humidity": 3,
+        "flux": "EXTRACT",
+        "last_flux": "EXTRACT",
+        "night": True,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    sent_commands = []
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "send_ir_button", sent_commands.append)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+
+    await server.command(action)
+
+    assert sent_commands == ["MODE_NIGHT", expected_command]
+    assert state["night"] is False
+
+
+@pytest.mark.parametrize(
+    ("action", "snapshot", "expected_mode", "expected_flux", "expected_commands"),
+    [
+        (
+            "MODE",
+            {"mode": "MANUAL", "speed": 2, "humidity": 3, "flux": "NONE", "night": False, "automation_enabled": False},
+            "MANUAL",
+            "NONE",
+            ["MODE_MANUAL", "SPEED_2", "HUMIDITY_3"],
+        ),
+        (
+            "FLUX",
+            {"mode": "NONE", "speed": 2, "humidity": 3, "flux": "EXTRACT", "night": False, "automation_enabled": False},
+            "NONE",
+            "EXTRACT",
+            ["FLUX_EXTRACT", "SPEED_2", "HUMIDITY_3"],
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_first_mode_or_flux_click_during_boost_restores_selection(
+    monkeypatch, action, snapshot, expected_mode, expected_flux, expected_commands
+):
+    state = {
+        **snapshot,
+        "last_mode": "MANUAL",
+        "last_flux": "EXTRACT",
+        "boost": True,
+        "boost_previous_state": snapshot.copy(),
+        "boost_expires_at": 1200.0,
+    }
+    sent_commands = []
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "send_ir_button", sent_commands.append)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+    monkeypatch.setattr(server, "boost_task", None)
+
+    await server.command(action)
+
+    assert state["boost"] is False
+    assert state["mode"] == expected_mode
+    assert state["flux"] == expected_flux
+    assert sent_commands == expected_commands
+
+
 @pytest.mark.asyncio
 async def test_missing_previous_selection_uses_default(monkeypatch):
     state = {

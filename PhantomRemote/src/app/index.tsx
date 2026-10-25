@@ -97,9 +97,11 @@ function PhantomLevelGlyphs({ name, level, color }: {
 
 export interface PhantomState {
   mode: 'AUTO' | 'SLEEP' | 'MANUAL' | 'NONE';
+  last_mode?: 'AUTO' | 'SLEEP' | 'MANUAL';
   speed: number;
   humidity: number;
   flux: 'SOUTH_NORTH' | 'EXTRACT' | 'INTAKE' | 'NORTH_SOUTH' | 'NONE';
+  last_flux?: 'SOUTH_NORTH' | 'EXTRACT' | 'INTAKE' | 'NORTH_SOUTH';
   night: boolean;
   boost: boolean;
   automation_enabled: boolean;
@@ -536,6 +538,7 @@ export default function Index() {
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [activeHistoryMetric, setActiveHistoryMetric] = useState<HistoryMetricKey | null>(null);
   const [controlsLocked, setControlsLocked] = useState(true);
+  const [lockActivityVersion, setLockActivityVersion] = useState(0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [activeView, setActiveView] = useState<AppView>('home');
   const [homeTab, setHomeTab] = useState<HomeTab>('sensors');
@@ -570,7 +573,7 @@ export default function Index() {
 
     const relockTimeout = setTimeout(() => setControlsLocked(true), 60000);
     return () => clearTimeout(relockTimeout);
-  }, [controlsLocked]);
+  }, [controlsLocked, lockActivityVersion]);
 
   const fetchState = async () => {
     try {
@@ -666,6 +669,7 @@ export default function Index() {
   };
 
   const sendCommand = async (actionKey: string, payload?: object) => {
+    setLockActivityVersion((version) => version + 1);
     setLoading(actionKey);
     try {
       const res = await fetch(`${API_URL}/command/${actionKey}`, {
@@ -693,7 +697,7 @@ export default function Index() {
 
   const buttons = [
     {
-      label: phantomState.automation_enabled ? "AUTO (ON)" : "AUTO (OFF)",
+      label: phantomState.automation_enabled ? "AUTO ON" : "AUTO OFF",
       key: "TOGGLE_AUTO",
       color: phantomState.automation_enabled ? "#27ae60" : "#333333",
       icon: "hardware-chip-outline"
@@ -820,14 +824,20 @@ export default function Index() {
     && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
   const speedStatusActive = phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE';
   const humidityStatusActive = phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP';
-  const modeLabel = phantomState.mode === 'NONE' ? 'Direct airflow' : phantomState.mode;
+  const displayMode = phantomState.mode === 'NONE' && phantomState.last_mode
+    ? phantomState.last_mode
+    : phantomState.mode;
+  const modeLabel = displayMode === 'NONE' ? 'Direct airflow' : displayMode;
+  const displayFlux = phantomState.flux === 'NONE' && phantomState.last_flux
+    ? phantomState.last_flux
+    : phantomState.flux;
   const fluxLabel = {
     NONE: 'None',
     NORTH_SOUTH: 'Master slave',
     SOUTH_NORTH: 'Slave master',
     INTAKE: 'Intake',
     EXTRACT: 'Extract',
-  }[phantomState.flux];
+  }[displayFlux];
   const modeAirflowCycle = phantomState.mode !== 'NONE' && phantomState.flux === 'NONE';
   const airflowStatusLabel = modeAirflowCycle ? 'Alternative' : fluxLabel;
   const modeClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
@@ -1153,7 +1163,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.mode !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                !phantomState.boost && phantomState.mode !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (phantomState.mode === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
@@ -1162,24 +1172,24 @@ export default function Index() {
               onPress={() => sendCommand('MODE')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
-              accessibilityLabel={`Mode ${phantomState.mode.toLowerCase()}`}
-              accessibilityState={{ disabled: !modeClickable, selected: phantomState.mode !== 'NONE' }}
+              accessibilityLabel={`Mode ${displayMode.toLowerCase()}`}
+              accessibilityState={{ disabled: !modeClickable, selected: !phantomState.boost && phantomState.mode !== 'NONE' }}
             >
-              {getModeGlyph(phantomState.mode) ? (
+              {getModeGlyph(displayMode) ? (
                 <PhantomGlyph
-                  name={getModeGlyph(phantomState.mode)!}
+                  name={getModeGlyph(displayMode)!}
                   color={modeClickable ? '#00ffcc' : '#444'}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, !modeClickable && styles.controlLabelDisabled]}>{phantomState.mode}</Text>
+              <Text style={[styles.controlLabel, !modeClickable && styles.controlLabelDisabled]}>{displayMode}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
-              speedStatusActive && (phantomState.automation_enabled && !controlsLocked
+              speedStatusActive && !phantomState.boost && (phantomState.automation_enabled && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
               (!speedStatusActive || controlsLocked) && styles.statusBoxDisabled,
@@ -1189,7 +1199,7 @@ export default function Index() {
               disabled={loading !== null || controlsLocked || !speedControlEnabled}
               accessibilityRole="button"
               accessibilityLabel={`Fan speed ${phantomState.speed} of 3`}
-              accessibilityState={{ disabled: !speedClickable, selected: speedStatusActive }}
+              accessibilityState={{ disabled: !speedClickable, selected: speedStatusActive && !phantomState.boost }}
             >
               <PhantomLevelGlyphs
                 name="fan"
@@ -1202,7 +1212,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
               styles.statusBox,
-              humidityStatusActive && (phantomState.automation_enabled && !controlsLocked
+              humidityStatusActive && !phantomState.boost && (phantomState.automation_enabled && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
               (!humidityStatusActive || controlsLocked) && styles.statusBoxDisabled,
@@ -1212,7 +1222,7 @@ export default function Index() {
               disabled={loading !== null || controlsLocked || !humidityControlEnabled}
               accessibilityRole="button"
               accessibilityLabel={`Humidity target ${phantomState.humidity} of 3`}
-              accessibilityState={{ disabled: !humidityClickable, selected: humidityStatusActive }}
+              accessibilityState={{ disabled: !humidityClickable, selected: humidityStatusActive && !phantomState.boost }}
             >
               <PhantomLevelGlyphs
                 name="humidity"
@@ -1227,7 +1237,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.flux !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                !phantomState.boost && phantomState.flux !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (phantomState.flux === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
@@ -1236,24 +1246,26 @@ export default function Index() {
               onPress={() => sendCommand('FLUX')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
-              accessibilityLabel={`Airflow ${phantomState.flux.toLowerCase()}`}
-              accessibilityState={{ disabled: !fluxClickable, selected: phantomState.flux !== 'NONE' }}
+              accessibilityLabel={displayFlux === 'NONE' ? 'Inflow' : `Airflow ${fluxLabel.toLowerCase()}`}
+              accessibilityState={{ disabled: !fluxClickable, selected: !phantomState.boost && phantomState.flux !== 'NONE' }}
             >
-              {getFluxGlyph(phantomState.flux) ? (
+              {getFluxGlyph(displayFlux) ? (
                 <PhantomGlyph
-                  name={getFluxGlyph(phantomState.flux)!}
+                  name={getFluxGlyph(displayFlux)!}
                   color={fluxClickable ? '#00ffcc' : '#444'}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, !fluxClickable && styles.controlLabelDisabled]}>AIRFLOW</Text>
+              <Text style={[styles.controlLabel, !fluxClickable && styles.controlLabelDisabled]}>
+                {displayFlux === 'NONE' ? 'INFLOW' : fluxLabel.toUpperCase()}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                phantomState.night && (phantomState.automation_enabled && !controlsLocked
+                !phantomState.boost && phantomState.night && (phantomState.automation_enabled && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (!phantomState.night || controlsLocked) && styles.statusBoxDisabled,
@@ -1263,7 +1275,7 @@ export default function Index() {
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
               accessibilityRole="button"
               accessibilityLabel="Night mode"
-              accessibilityState={{ disabled: !nightClickable, selected: phantomState.night }}
+              accessibilityState={{ disabled: !nightClickable, selected: phantomState.night && !phantomState.boost }}
             >
               <PhantomGlyph name="night" color={nightClickable ? "#00ffcc" : "#444"} />
               <Text style={[styles.controlLabel, !nightClickable && styles.controlLabelDisabled]}>NIGHT</Text>
@@ -1275,8 +1287,9 @@ export default function Index() {
                 phantomState.boost && (phantomState.automation_enabled && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
-                (!phantomState.boost || controlsLocked) && styles.statusBoxDisabled,
+                !phantomState.boost && styles.statusBoxDisabled,
                 !phantomState.boost && styles.statusBoxDisabledBorder,
+                phantomState.boost && controlsLocked && { opacity: 0.7 },
               ]}
               onPress={() => sendCommand('BOOST')}
               disabled={loading !== null || controlsLocked || phantomState.automation_enabled}
@@ -1301,8 +1314,8 @@ export default function Index() {
                 || (!controlsLocked && btn.key === "TOGGLE_LOCK")
                 || btn.key === "RESET"
                 || (btn.key === "TOGGLE_AUTO" && !phantomState.automation_enabled);
-              const isSelected = (btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled)
-                || (btn.key === "TOGGLE_LOCK" && controlsLocked);
+              const isSelected = (btn.key === "TOGGLE_LOCK" && controlsLocked)
+                || (!phantomState.boost && btn.key === "TOGGLE_AUTO" && phantomState.automation_enabled);
               return (
                 <TouchableOpacity
                   key={btn.key}
@@ -1334,11 +1347,14 @@ export default function Index() {
                         size={18}
                         color={!isDisabled ? '#00ffcc' : '#444'}
                       />
-                      {btn.key !== "TOGGLE_LOCK" && (
-                        <Text style={[styles.statusBoxLabel, controlsLocked && styles.statusBoxLabelDisabled]}>
-                          {btn.label}
-                        </Text>
-                      )}
+                      <Text style={[
+                        btn.key === "TOGGLE_LOCK" ? styles.controlLabel : styles.statusBoxLabel,
+                        btn.key !== "TOGGLE_LOCK"
+                          && (controlsLocked || (isVisuallyDisabled && !isSelected))
+                          && styles.statusBoxLabelDisabled,
+                      ]}>
+                        {btn.label}
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
