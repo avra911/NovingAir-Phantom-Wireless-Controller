@@ -50,7 +50,7 @@ The backend can require a login. Generate the credentials and paste the output i
 python auth.py
 ```
 
-This sets `AUTH_USERNAME` and `AUTH_PASSWORD_HASH` (salted scrypt, no plaintext password is stored). If they are unset, the API stays open and the server logs a warning. The app signs in once, keeps a 30-day token in the device secure store, and asks for fingerprint/face (or the device PIN) on each launch. Changing the password or `AUTH_SECRET` signs out all devices. The web build asks for the password again after every reload.
+This sets `AUTH_USERNAME` and `AUTH_PASSWORD_HASH` (salted scrypt, no plaintext password is stored). If they are unset, the API stays open and the server logs a warning. The app signs in once, keeps a 30-day token in the device secure store, and asks for fingerprint/face (or the device PIN) on each launch. Changing the password or `AUTH_SECRET` signs out all devices. The web build keeps the token in `localStorage` for the same 30 days, without a biometric prompt.
 
 Do not put the password in `PhantomRemote/.env`: `EXPO_PUBLIC_*` values are bundled into the app. When exposing the backend outside your LAN, use HTTPS (reverse proxy or tunnel) or a VPN such as Tailscale, since plain HTTP exposes the password and token.
 

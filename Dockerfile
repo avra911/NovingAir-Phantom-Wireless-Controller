@@ -17,8 +17,10 @@ RUN apt-get update \
 RUN yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null \
     && sdkmanager --sdk_root="$ANDROID_HOME" \
         "platforms;android-36" \
+        "platforms;android-37.0" \
         "build-tools;35.0.0" \
         "build-tools;36.0.0" \
+        "build-tools;37.0.0" \
         "cmake;3.22.1" \
         "ndk;27.1.12297006" \
     && npm install --global eas-cli@25.3.0

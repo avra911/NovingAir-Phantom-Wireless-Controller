@@ -7,19 +7,24 @@ export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000
 const TOKEN_KEY = 'phantom_auth_token';
 const isNative = Platform.OS !== 'web';
 
-// On web the token lives in memory only, so a reload requires a new password login.
+// Native uses the OS secure store; web falls back to localStorage (no biometrics there).
 let memoryToken: string | null = null;
 const unauthorizedListeners = new Set<() => void>();
 
 export async function loadToken(): Promise<string | null> {
-  if (!isNative) return memoryToken;
-  memoryToken = await SecureStore.getItemAsync(TOKEN_KEY);
+  memoryToken = isNative
+    ? await SecureStore.getItemAsync(TOKEN_KEY)
+    : window.localStorage.getItem(TOKEN_KEY);
   return memoryToken;
 }
 
 async function saveToken(token: string | null) {
   memoryToken = token;
-  if (!isNative) return;
+  if (!isNative) {
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+    return;
+  }
   if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
