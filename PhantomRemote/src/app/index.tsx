@@ -196,7 +196,7 @@ interface PhantomStateRuntimeResponse {
   as_of: string;
 }
 
-const STATE_RUNTIME_CATEGORIES: Array<{ key: StateRuntimeCategory; label: string; color: string }> = [
+const STATE_RUNTIME_CATEGORIES: { key: StateRuntimeCategory; label: string; color: string }[] = [
   { key: 'night', label: 'Night', color: '#8e9aaf' },
   { key: 'speed_1', label: 'Speed 1', color: '#7ef2d0' },
   { key: 'speed_2', label: 'Speed 2', color: '#3498db' },
@@ -409,11 +409,6 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
   const canPageOlder = boundedWindowStart > 0;
   const canPageNewer = boundedWindowStart < latestWindowStart;
 
-  useEffect(() => {
-    setSelectedIndex(null);
-    setWindowStart(Math.max(samples.length - VISIBLE_CHART_SAMPLES, 0));
-  }, [config.key, samples.length]);
-
   const showOlderWindow = () => {
     setSelectedIndex(null);
     setWindowStart((currentStart) => Math.max(currentStart - VISIBLE_CHART_SAMPLES, 0));
@@ -531,8 +526,8 @@ function MiniHistoryChart({ config, samples }: { config: HistoryChartConfig; sam
 
 export default function Index() {
   const { width: viewportWidth } = useWindowDimensions();
-  const isCompactScreen = viewportWidth < 600;
-  const isVerySmallScreen = viewportWidth < 360;
+  const isCompactScreen = viewportWidth < 380;
+  const isVerySmallScreen = viewportWidth < 260;
   const [phantomState, setPhantomState] = useState<PhantomState>(DEFAULT_PHANTOM);
   const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics>(DEFAULT_SENSOR);
   const [loading, setLoading] = useState<string | null>(null);
@@ -572,6 +567,36 @@ export default function Index() {
   const hourlyConsumptionEstimate = stateRuntime ? getAverageHourlyConsumption(stateRuntime) : null;
 
   useEffect(() => {
+    const fetchState = async () => {
+      try {
+        const res = await fetch(`${API_URL}/state`);
+        if (res.ok) {
+          const data: CombinedState = await res.json();
+          setPhantomState(data.phantom);
+          setSensorMetrics(data.sensor);
+          setIndoorMetrics(data.indoor ?? null);
+          setOutdoorMetrics(data.outdoor ?? null);
+          setLastUpdatedAt(new Date());
+        }
+      } catch (err) {
+        console.error("Failed to sync initial state:", err);
+      } finally {
+        setInitialFetching(false);
+      }
+    };
+
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${API_URL}/history?limit=${HISTORY_LIMIT}`);
+        if (res.ok) {
+          const data: HistoryResponse = await res.json();
+          setHistorySamples(data.history ?? []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch sensor history:", err);
+      }
+    };
+
     fetchState();
     fetchHistory();
     const interval = setInterval(() => {
@@ -587,36 +612,6 @@ export default function Index() {
     const relockTimeout = setTimeout(() => setControlsLocked(true), 60000);
     return () => clearTimeout(relockTimeout);
   }, [controlsLocked, lockActivityVersion]);
-
-  const fetchState = async () => {
-    try {
-      const res = await fetch(`${API_URL}/state`);
-      if (res.ok) {
-        const data: CombinedState = await res.json();
-        setPhantomState(data.phantom);
-        setSensorMetrics(data.sensor);
-        setIndoorMetrics(data.indoor ?? null);
-        setOutdoorMetrics(data.outdoor ?? null);
-        setLastUpdatedAt(new Date());
-      }
-    } catch (err) {
-      console.error("Failed to sync initial state:", err);
-    } finally {
-      setInitialFetching(false);
-    }
-  };
-
-  const fetchHistory = async () => {
-    try {
-      const res = await fetch(`${API_URL}/history?limit=${HISTORY_LIMIT}`);
-      if (res.ok) {
-        const data: HistoryResponse = await res.json();
-        setHistorySamples(data.history ?? []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch sensor history:", err);
-    }
-  };
 
   const fetchAutomationLog = async () => {
     setLogLoading(true);
@@ -734,18 +729,6 @@ export default function Index() {
       case 'SOUTH_NORTH': return 'slave_master';
       case 'INTAKE': return 'insert';
       case 'EXTRACT': return 'evac';
-      default: return null;
-    }
-  };
-
-  const getButtonPhantomGlyph = (buttonKey: string): PhantomGlyphName | null => {
-    switch (buttonKey) {
-      case 'BOOST': return 'temp_evac';
-      case 'NIGHT': return 'night';
-      case 'SPEED': return 'fan';
-      case 'MODE': return getModeGlyph(phantomState.mode) ?? 'home';
-      case 'FLUX': return 'home';
-      case 'HUMIDITY': return 'humidity';
       default: return null;
     }
   };
@@ -1406,7 +1389,7 @@ export default function Index() {
 
         <View style={[styles.diagnosticsCard, activeView !== 'diagnostics' && styles.hiddenView]}>
           <View style={styles.diagnosticsHeader}>
-            <View>
+            <View style={styles.diagnosticsHeaderCopy}>
               <Text style={styles.sectionEyebrow}>
                 {diagnosticsTab === 'logs' ? 'AUTOMATION LOG' : diagnosticsTab === 'state_history' ? 'PHANTOM STATE' : 'STATE RUNTIME'}
               </Text>
@@ -1436,7 +1419,7 @@ export default function Index() {
               accessibilityRole="tab"
               accessibilityState={{ selected: diagnosticsTab === 'state_chart' }}
             >
-              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_chart' && styles.diagnosticsTabTextActive]}>State chart</Text>
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_chart' && styles.diagnosticsTabTextActive]}>Runtime</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.diagnosticsTab, diagnosticsTab === 'state_history' && styles.diagnosticsTabActive]}
@@ -1447,7 +1430,7 @@ export default function Index() {
               accessibilityRole="tab"
               accessibilityState={{ selected: diagnosticsTab === 'state_history' }}
             >
-              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_history' && styles.diagnosticsTabTextActive]}>State history</Text>
+              <Text style={[styles.diagnosticsTabText, diagnosticsTab === 'state_history' && styles.diagnosticsTabTextActive]}>History</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.diagnosticsTab, diagnosticsTab === 'logs' && styles.diagnosticsTabActive]}
@@ -1716,7 +1699,11 @@ export default function Index() {
                   );
                 })}
               </ScrollView>
-              <MiniHistoryChart config={activeHistoryConfig} samples={historySamples} />
+              <MiniHistoryChart
+                key={`${activeHistoryConfig.key}:${historySamples.length}`}
+                config={activeHistoryConfig}
+                samples={historySamples}
+              />
               <Text style={styles.historyFootnote}>{historySamples.length} stored minutes · latest {VISIBLE_CHART_SAMPLES} min shown</Text>
             </View>
           </SafeAreaView>
@@ -1930,8 +1917,9 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   diagnosticsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  diagnosticsTitle: { color: '#f4faf8', fontSize: 18, fontWeight: '700', marginTop: 3 },
-  refreshButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: '#1b2926', alignItems: 'center', justifyContent: 'center' },
+  diagnosticsHeaderCopy: { flex: 1, minWidth: 0, marginRight: 12 },
+  diagnosticsTitle: { color: '#f4faf8', fontSize: 18, fontWeight: '700', marginTop: 3, flexShrink: 1 },
+  refreshButton: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, borderWidth: 1, borderColor: '#1b2926', alignItems: 'center', justifyContent: 'center' },
   diagnosticsEmpty: { color: '#9aa9a7', fontSize: 13, paddingVertical: 24 },
   diagnosticsTabs: { flexDirection: 'row', gap: 4, padding: 3, marginBottom: 12, borderWidth: 1, borderColor: '#1b2926', borderRadius: 8, backgroundColor: '#050707' },
   diagnosticsTab: { flex: 1, minHeight: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 5 },

@@ -49,7 +49,7 @@ if __name__ == "__main__":
     data = read_air_detector()
     
     if data:
-        print("=== 8-IN-1 AIR DETECTOR READINGS ===")
+        print("=== 8-IN-1 AIR MONITOR READINGS ===")
         print(f"1. CO2 Level       : {data['co2_ppm']} ppm ({data['co2_state']})")
         print(f"2. Temperature     : {data['temperature_c']} °C")
         print(f"3. Humidity        : {data['humidity_pct']} %")
