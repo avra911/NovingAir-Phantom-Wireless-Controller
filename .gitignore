@@ -5,6 +5,7 @@ data/*
 !data/empty
 logs/*
 !logs/empty
+builds/
 state.json
 snapshot.json
 devices.json

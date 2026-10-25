@@ -815,15 +815,16 @@ export default function Index() {
   const co2Status = getCO2Status(sensorMetrics.co2_ppm);
   const updateLabel = lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Waiting for sensor';
   const viewTitles: Record<AppView, string> = {
-    home: 'Home air, made clear.',
-    diagnostics: 'System diagnostics.',
+    home: 'Air quality',
+    diagnostics: 'Diagnostics',
   };
   const speedControlEnabled = !phantomState.automation_enabled
     && (phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE');
   const humidityControlEnabled = !phantomState.automation_enabled
-    && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP' || phantomState.night);
+    && (phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP');
   const speedStatusActive = phantomState.mode === 'MANUAL' || phantomState.flux !== 'NONE';
   const humidityStatusActive = phantomState.mode === 'AUTO' || phantomState.mode === 'SLEEP';
+  const passiveControlsDimmed = phantomState.automation_enabled || phantomState.boost;
   const displayMode = phantomState.mode === 'NONE' && phantomState.last_mode
     ? phantomState.last_mode
     : phantomState.mode;
@@ -846,6 +847,10 @@ export default function Index() {
   const fluxClickable = loading === null && !controlsLocked && !phantomState.automation_enabled;
   const nightClickable = fluxClickable;
   const boostClickable = fluxClickable;
+  const getControlIconColor = (clickable: boolean) => {
+    if (!clickable) return '#444';
+    return phantomState.boost ? '#008f72' : '#00ffcc';
+  };
 
   if (!fontsLoaded || initialFetching) {
     return (
@@ -866,15 +871,14 @@ export default function Index() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.appHeader}>
-          <View>
-            <Text style={styles.eyebrow}>NOVINGAIR</Text>
+          <View style={styles.headerCopy}>
             <Text style={styles.title}>{viewTitles[activeView]}</Text>
+            <Text style={styles.updatedText}>{updateLabel}</Text>
           </View>
           <TouchableOpacity style={styles.menuButton} onPress={() => setMenuOpen(true)} accessibilityRole="button" accessibilityLabel="Open navigation menu">
             <Ionicons name="menu" size={24} color="#7ef2d0" />
           </TouchableOpacity>
         </View>
-        <Text style={styles.updatedText}>{updateLabel} · Phantom {phantomState.mode.toLowerCase()}</Text>
 
         <View style={[styles.homeTabs, activeView !== 'home' && styles.hiddenView]} accessibilityRole="tablist">
           <TouchableOpacity
@@ -903,7 +907,7 @@ export default function Index() {
         <View style={[styles.sensorCard, (activeView !== 'home' || homeTab !== 'sensors') && styles.hiddenView]}>
           <View style={styles.cardHeader}>
             <View style={styles.indicatorBlock}>
-              <MaterialCommunityIcons name="molecule-co2" size={24} color={getCO2Color(sensorMetrics.co2_ppm)} />
+              <MaterialCommunityIcons name="air-filter" size={24} color="#8e9aaf" />
               <Text style={styles.cardHeaderTitle}>AIR DETECTOR</Text>
             </View>
             <View style={styles.indicatorBlock}>
@@ -924,10 +928,16 @@ export default function Index() {
               <Text style={styles.airStatus}>{co2Status.label}</Text>
               <Text style={styles.airStatusDetail}>{co2Status.detail}</Text>
             </View>
-            <View style={styles.co2HeroValue}>
+            <TouchableOpacity
+              style={styles.co2HeroValue}
+              onPress={() => openHistoryMetric('co2_ppm')}
+              accessibilityRole="button"
+              accessibilityLabel={`CO2 ${sensorMetrics.co2_ppm} parts per million`}
+              accessibilityHint="Opens CO2 history"
+            >
               <Text style={[styles.co2HeroNumber, { color: co2Status.color }]}>{formatMetricNumber(sensorMetrics.co2_ppm)}</Text>
               <Text style={styles.co2HeroUnit}>PPM CO2</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.metricsGrid}>
@@ -1163,7 +1173,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                !phantomState.boost && phantomState.mode !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                phantomState.mode !== 'NONE' && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (phantomState.mode === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
@@ -1178,18 +1188,18 @@ export default function Index() {
               {getModeGlyph(displayMode) ? (
                 <PhantomGlyph
                   name={getModeGlyph(displayMode)!}
-                  color={modeClickable ? '#00ffcc' : '#444'}
+                  color={getControlIconColor(modeClickable)}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, !modeClickable && styles.controlLabelDisabled]}>{displayMode}</Text>
+              <Text style={[styles.controlLabel, (!modeClickable || phantomState.boost) && styles.controlLabelDisabled]}>{displayMode}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
-              speedStatusActive && !phantomState.boost && (phantomState.automation_enabled && !controlsLocked
+              speedStatusActive && (passiveControlsDimmed && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
               (!speedStatusActive || controlsLocked) && styles.statusBoxDisabled,
@@ -1204,15 +1214,15 @@ export default function Index() {
               <PhantomLevelGlyphs
                 name="fan"
                 level={phantomState.speed}
-                color={speedClickable ? "#00ffcc" : "#444"}
+                color={getControlIconColor(speedClickable)}
               />
-              <Text style={[styles.controlLabel, !speedClickable && styles.controlLabelDisabled]}>SPEED {phantomState.speed}</Text>
+              <Text style={[styles.controlLabel, (!speedClickable || phantomState.boost) && styles.controlLabelDisabled]}>SPEED {phantomState.speed}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
               styles.statusBox,
-              humidityStatusActive && !phantomState.boost && (phantomState.automation_enabled && !controlsLocked
+              humidityStatusActive && (passiveControlsDimmed && !controlsLocked
                 ? styles.statusBoxAutoHighlighted
                 : styles.statusBoxHighlighted),
               (!humidityStatusActive || controlsLocked) && styles.statusBoxDisabled,
@@ -1227,9 +1237,9 @@ export default function Index() {
               <PhantomLevelGlyphs
                 name="humidity"
                 level={phantomState.humidity}
-                color={humidityClickable ? "#00ffcc" : "#444"}
+                color={getControlIconColor(humidityClickable)}
               />
-              <Text style={[styles.controlLabel, !humidityClickable && styles.controlLabelDisabled]}>HUMIDITY {phantomState.humidity}</Text>
+              <Text style={[styles.controlLabel, (!humidityClickable || phantomState.boost) && styles.controlLabelDisabled]}>HUMIDITY {phantomState.humidity}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1237,7 +1247,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                !phantomState.boost && phantomState.flux !== 'NONE' && (phantomState.automation_enabled && !controlsLocked
+                phantomState.flux !== 'NONE' && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (phantomState.flux === 'NONE' || controlsLocked) && styles.statusBoxDisabled,
@@ -1252,12 +1262,12 @@ export default function Index() {
               {getFluxGlyph(displayFlux) ? (
                 <PhantomGlyph
                   name={getFluxGlyph(displayFlux)!}
-                  color={fluxClickable ? '#00ffcc' : '#444'}
+                  color={getControlIconColor(fluxClickable)}
                 />
               ) : (
                 <MaterialCommunityIcons name="minus-circle-outline" size={18} color="#444" />
               )}
-              <Text style={[styles.controlLabel, !fluxClickable && styles.controlLabelDisabled]}>
+              <Text style={[styles.controlLabel, (!fluxClickable || phantomState.boost) && styles.controlLabelDisabled]}>
                 {displayFlux === 'NONE' ? 'INFLOW' : fluxLabel.toUpperCase()}
               </Text>
             </TouchableOpacity>
@@ -1265,7 +1275,7 @@ export default function Index() {
             <TouchableOpacity
               style={[
                 styles.statusBox,
-                !phantomState.boost && phantomState.night && (phantomState.automation_enabled && !controlsLocked
+                phantomState.night && (passiveControlsDimmed && !controlsLocked
                   ? styles.statusBoxAutoHighlighted
                   : styles.statusBoxHighlighted),
                 (!phantomState.night || controlsLocked) && styles.statusBoxDisabled,
@@ -1277,8 +1287,8 @@ export default function Index() {
               accessibilityLabel="Night mode"
               accessibilityState={{ disabled: !nightClickable, selected: phantomState.night && !phantomState.boost }}
             >
-              <PhantomGlyph name="night" color={nightClickable ? "#00ffcc" : "#444"} />
-              <Text style={[styles.controlLabel, !nightClickable && styles.controlLabelDisabled]}>NIGHT</Text>
+              <PhantomGlyph name="night" color={getControlIconColor(nightClickable)} />
+              <Text style={[styles.controlLabel, (!nightClickable || phantomState.boost) && styles.controlLabelDisabled]}>NIGHT</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1344,13 +1354,17 @@ export default function Index() {
                     <>
                       <Ionicons
                         name={btn.icon as any}
-                        size={18}
+                        size={30}
                         color={!isDisabled ? '#00ffcc' : '#444'}
                       />
                       <Text style={[
-                        btn.key === "TOGGLE_LOCK" ? styles.controlLabel : styles.statusBoxLabel,
+                        btn.key === "TOGGLE_LOCK" || btn.key === "RESET" || (btn.key === "TOGGLE_AUTO" && isSelected)
+                          ? styles.controlLabel
+                          : styles.statusBoxLabel,
                         btn.key !== "TOGGLE_LOCK"
-                          && (controlsLocked || (isVisuallyDisabled && !isSelected))
+                          && btn.key !== "RESET"
+                          && !(btn.key === "TOGGLE_AUTO" && isSelected)
+                          && (controlsLocked || isVisuallyDisabled || isSelected)
                           && styles.statusBoxLabelDisabled,
                       ]}>
                         {btn.label}
@@ -1672,7 +1686,6 @@ export default function Index() {
           <View style={styles.menuPanel}>
             <View style={styles.menuPanelHeader}>
               <View>
-                <Text style={styles.eyebrow}>NOVINGAIR</Text>
                 <Text style={styles.menuTitle}>Navigate</Text>
               </View>
               <TouchableOpacity onPress={() => setMenuOpen(false)} accessibilityRole="button" accessibilityLabel="Close menu">
@@ -1723,12 +1736,13 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 16,
   },
+  headerCopy: { flex: 1 },
   eyebrow: { color: '#7ef2d0', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
-  title: { fontSize: 25, fontWeight: '700', color: '#f4faf8', marginTop: 4 },
+  title: { fontSize: 25, fontWeight: '700', color: '#f4faf8' },
   connectionPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1757,7 +1771,7 @@ const styles = StyleSheet.create({
     color: '#657673',
     fontSize: 11,
     fontFamily: 'monospace',
-    marginBottom: 16,
+    marginTop: 2,
   },
   appFooter: {
     width: '100%',
@@ -1809,7 +1823,7 @@ const styles = StyleSheet.create({
   airStatus: { color: '#f4faf8', fontSize: 19, fontWeight: '700', marginBottom: 4 },
   airStatusDetail: { color: '#9aa9a7', fontSize: 11, lineHeight: 16 },
   co2HeroValue: { alignItems: 'flex-end' },
-  co2HeroNumber: { fontSize: 34, fontWeight: '700', fontFamily: 'monospace' },
+  co2HeroNumber: { fontSize: 40, fontWeight: '700', fontFamily: 'monospace' },
   co2HeroUnit: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   metricsGrid: { 
     flexDirection: 'row', 
@@ -1830,9 +1844,9 @@ const styles = StyleSheet.create({
     borderColor: '#00ffcc',
     backgroundColor: '#001a14',
   },
-  metricLabel: { color: '#657673', fontSize: 10, fontWeight: 'bold', marginBottom: 3 },
-  metricValue: { color: '#f4faf8', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },
-  unit: { fontSize: 8, color: '#9aa9a7' },
+  metricLabel: { color: '#657673', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
+  metricValue: { color: '#f4faf8', fontSize: 14, fontWeight: 'bold', fontFamily: 'monospace' },
+  unit: { fontSize: 9, color: '#9aa9a7' },
   hiddenView: { display: 'none' },
   homeTabs: {
     width: '100%',
@@ -2201,8 +2215,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
-  currentStatusLabel: { color: '#657673', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
-  currentStatusValue: { color: '#7ef2d0', fontSize: 12, fontWeight: '700', marginTop: 4 },
+  currentStatusLabel: { color: '#657673', fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  currentStatusValue: { color: '#7ef2d0', fontSize: 13, fontWeight: '700', marginTop: 4 },
   lcdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'stretch', marginVertical: 4, gap: 8 },
   indicatorBlock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusBox: {
@@ -2225,9 +2239,9 @@ const styles = StyleSheet.create({
   statusBoxDisabledBorder: { borderColor: '#1b2926', backgroundColor: '#0a0d0d' },
   statusBoxDisabled: { opacity: 0.4 },
   phantomLevelIcons: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 24, gap: 2 },
-  statusBoxLabel: { color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
+  statusBoxLabel: { position: 'absolute', bottom: 8, alignSelf: 'center', color: '#00ffcc', fontSize: 10, fontWeight: 'bold', opacity: 0.8 },
   statusBoxLabelDisabled: { color: '#444' },
-  controlLabel: { color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginTop: 8 },
+  controlLabel: { position: 'absolute', bottom: 8, alignSelf: 'center', color: '#9aa9a7', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   controlLabelDisabled: { color: '#657673' },
   statusBoxValue: { color: '#00ffcc', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' },
   lcdText: { color: '#00ffcc', fontSize: 13, fontWeight: 'bold', fontFamily: 'monospace' },

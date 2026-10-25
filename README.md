@@ -89,6 +89,17 @@ npx expo start
 
 Use Expo Go, an emulator, or the web option. The phone and backend machine must be able to reach each other over the local network.
 
+## Build Android App with Docker
+
+From the repository root, authenticate with EAS first so credentials are available in `~/.expo`. Then build the local Android preview APK:
+
+```bash
+mkdir -p builds
+LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose run --build --rm -e EAS_NO_VCS=1 android-build
+```
+
+The APK is written to `builds/`. The `EAS_NO_VCS=1` setting lets EAS build from the mounted app directory without initializing a nested Git repository.
+
 ## Production Setup (Systemd Deployment)
 
 For persistent background execution on a local server (e.g., Linux NUC / Raspberry Pi), run both backend and web frontend as persistent systemd services.
