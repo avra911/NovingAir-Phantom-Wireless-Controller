@@ -224,8 +224,15 @@ async def _boost_timer(expires_at: float) -> None:
 async def _start_boost() -> None:
     global boost_task
 
+    night_snapshot = CURRENT_STATE.get("night_previous_state")
+    if CURRENT_STATE.get("night") and isinstance(night_snapshot, dict):
+        snapshot = night_snapshot.copy()
+    else:
+        snapshot = None
+
     _disable_night_mode()
-    snapshot = _boost_snapshot()
+    if snapshot is None:
+        snapshot = _boost_snapshot()
     expires_at = time.time() + BOOST_DURATION_SECONDS
     send_ir_button("BOOST")
 

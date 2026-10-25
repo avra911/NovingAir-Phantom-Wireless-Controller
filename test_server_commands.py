@@ -165,6 +165,44 @@ async def test_toggling_night_restores_previous_state(
 
 
 @pytest.mark.parametrize(
+    ("first_action", "second_action", "turn_off_action"),
+    [("BOOST", "NIGHT", "NIGHT"), ("NIGHT", "BOOST", "BOOST")],
+)
+@pytest.mark.parametrize(
+    ("mode", "flux"),
+    [("SLEEP", "NONE"), ("NONE", "EXTRACT")],
+)
+@pytest.mark.asyncio
+async def test_toggling_boost_and_night_restores_previous_selection(
+    monkeypatch, first_action, second_action, turn_off_action, mode, flux
+):
+    previous_state = {
+        "mode": mode,
+        "last_mode": "SLEEP",
+        "speed": 2,
+        "humidity": 3,
+        "flux": flux,
+        "last_flux": "EXTRACT",
+        "night": False,
+        "boost": False,
+        "automation_enabled": False,
+    }
+    state = previous_state.copy()
+    monkeypatch.setattr(server, "CURRENT_STATE", state)
+    monkeypatch.setattr(server, "send_ir_button", lambda _button: None)
+    monkeypatch.setattr(server, "save_state", lambda _state: None)
+    monkeypatch.setattr(server, "boost_task", None)
+
+    await server.command(first_action)
+    await server.command(second_action)
+    await server.command(turn_off_action)
+
+    assert {key: state[key] for key in previous_state} == previous_state
+    assert "night_previous_state" not in state
+    assert "boost_previous_state" not in state
+
+
+@pytest.mark.parametrize(
     ("action", "snapshot", "expected_mode", "expected_flux", "expected_commands"),
     [
         (
