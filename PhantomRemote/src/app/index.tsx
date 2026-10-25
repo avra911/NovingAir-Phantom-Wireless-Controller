@@ -1367,12 +1367,12 @@ export default function Index() {
                         color={!isDisabled ? '#00ffcc' : '#444'}
                       />
                       <Text style={[
-                        btn.key === "TOGGLE_LOCK" || btn.key === "RESET" || (btn.key === "TOGGLE_AUTO" && isSelected)
+                        btn.key === "TOGGLE_LOCK" || btn.key === "RESET" || btn.key === "TOGGLE_AUTO"
                           ? styles.controlLabel
                           : styles.statusBoxLabel,
                         btn.key !== "TOGGLE_LOCK"
                           && btn.key !== "RESET"
-                          && !(btn.key === "TOGGLE_AUTO" && isSelected)
+                          && btn.key !== "TOGGLE_AUTO"
                           && (controlsLocked || isVisuallyDisabled || isSelected)
                           && styles.statusBoxLabelDisabled,
                       ]}>
