@@ -1,9 +1,10 @@
+import asyncio
 import os
 import sqlite3
 import json
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from tasks import (
     _send_ir,
@@ -29,8 +30,120 @@ def test_automation_ir_log_omits_none_response(caplog):
     assert not any("None" in message for message in caplog.messages)
 
 
-def test_direct_flow_stops_when_indoor_temperature_is_closer_to_ideal():
-    assert _should_use_direct_flow(22.9, 21.0, True) is False
+@pytest.mark.parametrize("current_flow", [False, True])
+@pytest.mark.parametrize(
+    "indoor_temp,outdoor_temp,expected",
+    [
+        (25.0, 18.0, True),
+        (22.9, 21.0, True),
+        (22.0, 18.0, False),
+        (21.0, 18.0, False),
+        (25.0, 23.0, True),
+        (18.0, 21.0, True),
+        (25.0, 27.0, False),
+        (25.0, None, False),
+        (22.0, 22.0, False),
+    ],
+)
+def test_direct_flow_temperature_conditions(indoor_temp, outdoor_temp, expected, current_flow):
+    assert _should_use_direct_flow(indoor_temp, outdoor_temp, current_flow) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initial_direct,readings,ir_results,expected_commands,expected_fluxes",
+    [
+        pytest.param(
+            False,
+            [(0, 25.0, 18.0), (1, 22.0, 18.0), (2, 25.0, 18.0),
+             (30, 25.0, 18.0), (31, 25.0, 18.0)],
+            None,
+            [["BTN_DIRECT"], ["BTN_MANUAL"], [], [], ["BTN_DIRECT"]],
+            ["NORTH_SOUTH", "NONE", "NONE", "NONE", "NORTH_SOUTH"],
+            id="immediate-exit-and-reentry-at-exact-cooldown-boundary",
+        ),
+        pytest.param(
+            True,
+            [(0, 22.0, 18.0), (29, 25.0, 18.0), (30, 25.0, 18.0)],
+            None,
+            [["BTN_MANUAL"], [], ["BTN_DIRECT"]],
+            ["NONE", "NONE", "NORTH_SOUTH"],
+            id="initial-direct-flow-exit-starts-cooldown",
+        ),
+        pytest.param(
+            False, [(0, 25.0, 18.0), (1, 25.0, None)], None,
+            [["BTN_DIRECT"], ["BTN_MANUAL"]], ["NORTH_SOUTH", "NONE"],
+            id="missing-outdoor-reading-exits-despite-cached-value",
+        ),
+        pytest.param(
+            False, [(0, 25.0, 18.0), (1, 25.0, RuntimeError("Sensor unavailable"))], None,
+            [["BTN_DIRECT"], ["BTN_MANUAL"]], ["NORTH_SOUTH", "NONE"],
+            id="failed-outdoor-reading-exits-despite-cached-value",
+        ),
+        pytest.param(
+            False, [(0, 25.0, 18.0), (1, 25.0, 18.0)],
+            [RuntimeError("IR unavailable"), None],
+            [["BTN_DIRECT"], ["BTN_DIRECT"]], ["NONE", "NORTH_SOUTH"],
+            id="failed-entry-retries-without-cooldown",
+        ),
+        pytest.param(
+            True, [(0, 22.0, 18.0), (1, 22.0, 18.0)],
+            [RuntimeError("IR unavailable"), None],
+            [["BTN_MANUAL"], ["BTN_MANUAL"]], ["NORTH_SOUTH", "NONE"],
+            id="failed-exit-preserves-flux-and-retries",
+        ),
+    ],
+)
+async def test_airflow_cooldown(
+    initial_direct, readings, ir_results, expected_commands, expected_fluxes
+):
+    mock_sensor = MagicMock()
+    mock_sensor.status.return_value = {"dps": {"2": 450}}
+    mock_ir = MagicMock()
+    mock_ir.send_button.side_effect = ir_results
+    state = {
+        "mode": "NONE" if initial_direct else "MANUAL",
+        "flux": "NORTH_SOUTH" if initial_direct else "NONE",
+        "speed": 1,
+    }
+    gateway = MagicMock()
+    gateway.get_indoor.side_effect = [
+        MagicMock(temperature=indoor, humidity=50, battery=100)
+        for _, indoor, _ in readings
+    ]
+    gateway.get_outdoor.side_effect = [
+        outdoor if isinstance(outdoor, Exception)
+        else MagicMock(temperature=outdoor, humidity=50, battery=100)
+        for _, _, outdoor in readings
+    ]
+    now = datetime(2026, 1, 1, 12)
+    poll_index = 0
+    previous_call_count = 0
+    save_state = MagicMock()
+
+    async def next_poll(seconds):
+        nonlocal poll_index, previous_call_count
+        calls = mock_ir.send_button.call_args_list
+        assert [call.args[0] for call in calls[previous_call_count:]] == expected_commands[poll_index]
+        assert state["flux"] == expected_fluxes[poll_index]
+        previous_call_count = len(calls)
+        poll_index += 1
+        if poll_index == len(readings):
+            raise asyncio.CancelledError
+
+    with patch("tasks._is_night", return_value=False), patch(
+        "tasks._get_now", side_effect=lambda: now + timedelta(minutes=readings[poll_index][0])
+    ), patch("tasks.asyncio.sleep", side_effect=next_poll):
+        with pytest.raises(asyncio.CancelledError):
+            await poll_air_sensor_task(
+                mock_sensor, mock_ir,
+                {"MODE_MANUAL": "BTN_MANUAL", "FLUX_NORTH_SOUTH": "BTN_DIRECT"},
+                state, {}, save_state, gateway,
+            )
+
+    assert state["mode"] == ("NONE" if expected_fluxes[-1] == "NORTH_SOUTH" else "MANUAL")
+    save_state.assert_called()
+
 
 @pytest.mark.asyncio
 async def test_scenario_1_normal_co2():

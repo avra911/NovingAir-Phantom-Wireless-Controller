@@ -73,7 +73,10 @@ def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None, curr
     if outdoor_temp is None:
         return False
 
-    return abs(outdoor_temp - IDEAL_TEMP) < abs(indoor_temp - IDEAL_TEMP)
+    return (
+        abs(outdoor_temp - IDEAL_TEMP) < abs(indoor_temp - IDEAL_TEMP)
+        or outdoor_temp < IDEAL_TEMP < indoor_temp
+    )
 
 def _safe_float(val, divisor=1.0):
     if val is None:
@@ -462,6 +465,7 @@ async def poll_air_sensor_task(
 
     loop = asyncio.get_running_loop()
     last_speed_change = None
+    last_airflow_change = None
     was_night = _is_night()
 
     while True:
@@ -480,9 +484,11 @@ async def poll_air_sensor_task(
                 air_metrics_dict["online"] = False
 
             # 2. Read local Zigbee sensors
+            outdoor_temp = None
             try:
                 indoor_data = await loop.run_in_executor(None, gateway.get_indoor)
                 outdoor_data = await loop.run_in_executor(None, gateway.get_outdoor)
+                outdoor_temp = getattr(outdoor_data, "temperature", None)
 
                 _apply_last_known_good(air_metrics_dict, {
                     "indoor_temperature_c": indoor_data.temperature,
@@ -522,10 +528,17 @@ async def poll_air_sensor_task(
 
             # 4. Thermal airflow logic
             indoor_temp = air_metrics_dict.get("indoor_temperature_c", IDEAL_TEMP)
-            outdoor_temp = air_metrics_dict.get("outdoor_temperature_c")
 
             currently_direct = state_dict.get("flux") == "NORTH_SOUTH"
             direct_flow = _should_use_direct_flow(indoor_temp, outdoor_temp, currently_direct)
+            now = _get_now()
+            if (
+                direct_flow
+                and not currently_direct
+                and last_airflow_change is not None
+                and (now - last_airflow_change) < timedelta(minutes=SPEED_CHANGE_LOCK_MINUTES)
+            ):
+                direct_flow = False
 
             target_mode = "NONE" if direct_flow else "MANUAL"
             target_flux = "NORTH_SOUTH" if direct_flow else "NONE"
@@ -539,13 +552,14 @@ async def poll_air_sensor_task(
                     state_dict["mode"] = target_mode
                     state_changed = True
 
-            if state_dict.get("flux") != target_flux:
+            if state_dict.get("mode") == target_mode and state_dict.get("flux") != target_flux:
                 if await _set_flux(loop, target_flux, ir_device, button_codes):
                     state_dict["flux"] = target_flux
+                    if currently_direct != direct_flow:
+                        last_airflow_change = now
                     state_changed = True
 
             # 6. Speed lock with Night Transition Override
-            now = _get_now()
             night_transition = (night and not was_night)
 
             can_change_speed = (
