@@ -75,7 +75,7 @@ def _should_use_direct_flow(indoor_temp: float, outdoor_temp: float | None, curr
 
     return (
         abs(outdoor_temp - IDEAL_TEMP) < abs(indoor_temp - IDEAL_TEMP)
-        or outdoor_temp < IDEAL_TEMP < indoor_temp
+        or outdoor_temp < IDEAL_TEMP + 1 < indoor_temp
     )
 
 def _safe_float(val, divisor=1.0):

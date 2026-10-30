@@ -35,7 +35,8 @@ def test_automation_ir_log_omits_none_response(caplog):
     "indoor_temp,outdoor_temp,expected",
     [
         (25.0, 18.0, True),
-        (22.9, 21.0, True),
+        (22.9, 21.0, False),
+        (22.5, 18.0, False),
         (22.0, 18.0, False),
         (21.0, 18.0, False),
         (25.0, 23.0, True),
